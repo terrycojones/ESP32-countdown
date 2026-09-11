@@ -268,6 +268,36 @@ Display update cadence (how often the value is recalculated/redrawn) is
   definition no known `url` either, so no fetch is possible -- the device
   shows a "no data" message and waits to be manually seeded.
 
+## Portability
+
+This project targets exactly one board (Waveshare ESP32-C6-LCD-1.47) and makes no attempt to be general-purpose hardware-wise. That said, the board-specific surface turned out to be small and concentrated, not spread through the codebase -- worth recording precisely, since it's the honest answer to "how much work would porting this take."
+
+Line counts across `device/` (1,304 total):
+
+| File | Lines | Board-specific? |
+|---|---|---|
+| `display.py` | 109 | **Yes** -- see below |
+| `st7789py.py` | 312 | No -- vendored driver, parameterized by whatever pins/offsets/dimensions are passed in |
+| `requests.py` | 302 | No -- vendored HTTP client, no hardware dependency |
+| `main.py` | 166 | Almost entirely no -- one exception, see below |
+| `wifi.py` | 74 | No |
+| `render.py` | 72 | No |
+| `isotime.py` | 68 | No |
+| `countdown_data.py` | 92 | No |
+| `countdownfmt.py` | 42 | No |
+| `text.py` | 44 | No |
+| `colors.py` | 23 | No |
+
+The entire board-specific surface is: ~15-20 individual *values* in `display.py` (6 GPIO pin numbers, panel width/height, the `xstart`/`ystart` GRAM offset, SPI baudrate/mode, the MADCTL rotation value, color order, inversion flag -- all found empirically, see "Display bring-up findings" in README.md) plus exactly one constant elsewhere (`BOOT_PIN = 9` in `main.py`). Everything else -- the JSON schema/validation, Wi-Fi connect/NTP/refetch scheduling, date parsing, format-to-string logic, the rendering *algorithm* (layout boxes, scaled-font drawing), and the app's whole state machine in `main.py` -- has zero display/pin dependency and needs no changes for different hardware.
+
+What this means for porting to a different board, by tier:
+
+1. **Another unit of the identical Waveshare ESP32-C6-LCD-1.47** -- zero changes.
+2. **A different ESP32 board with an ST7789 (or very similar) SPI display** -- rediscover `display.py`'s ~20 constants using the same methodology already built and documented (`esptool chip-id`, the 4-corner color test, the SPI-mode/rotation trial-and-error in README.md's "Display bring-up findings"). Nothing else changes. This is a common combination in the ESP32 hobbyist space (many boards pair an ESP32 variant with a small ST7789/ST7735 SPI TFT), so this tier plausibly covers a meaningful number of boards -- just not for free.
+3. **Any ESP32 board with Wi-Fi and a different kind of display, or none at all** -- `display.py`, `render.py`, and `text.py` need a real rewrite (new drawing backend for whatever the new display technology is), but `colors.py`, `countdownfmt.py`, `isotime.py`, `countdown_data.py`, `wifi.py`, and `main.py`'s state-machine structure carry over unchanged.
+
+This clean separation wasn't planned upfront as a portability goal -- it fell out naturally from the JSON/format/color logic never touching hardware directly during development. If you want to port this to different hardware, [Claude Code](https://claude.com/claude-code) is a reasonable tool to help with tier 2 or 3 above -- the empirical bring-up methodology in README.md ("Display bring-up findings") is written specifically so it (or a person) can repeat it on new hardware. Pull requests for other boards are welcome.
+
 ## Not yet designed / deferred
 
 - A small on-screen error indicator (e.g. a colored corner marker) for
