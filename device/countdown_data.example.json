@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "url": null,
+    "refetch_after_seconds": 3600
+  },
+  "layout": {
+    "margin_top": 4,
+    "margin_bottom": 4,
+    "margin_left": 4,
+    "margin_right": 4,
+    "gap_before_value": 4,
+    "gap_value_after": 4
+  },
+  "defaults": {
+    "background": "#000000",
+    "before_color": "#ffffff",
+    "value_color": "#ffffff",
+    "after_color": "#ffffff"
+  },
+  "items": [
+    {
+      "target": "2026-09-20T12:00:00Z",
+      "display_seconds": 10,
+      "formats": [
+        {
+          "type": "days",
+          "precision": 2,
+          "before_text": "Sample Event",
+          "after_text": "days away",
+          "background": "#001030",
+          "value_color": "#ffcc00"
+        },
+        {
+          "type": "dhms",
+          "before_text": "Sample Event",
+          "after_text": ""
+        }
+      ]
+    },
+    {
+      "target": "2027-01-01T00:00:00Z",
+      "display_seconds": 8,
+      "formats": [
+        {
+          "type": "days",
+          "precision": 1,
+          "before_text": "New Year",
+          "after_text": ""
+        }
+      ]
+    }
+  ]
+}

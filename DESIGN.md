@@ -1,0 +1,218 @@
+# Countdown app design
+
+This is the agreed design for the countdown application itself, as distinct
+from the hardware bring-up covered in README.md.
+
+## JSON schema
+
+```json
+{
+  "meta": {
+    "url": "https://user:pass@example.com/countdown.json",
+    "refetch_after_seconds": 3600
+  },
+  "layout": {
+    "margin_top": 4,
+    "margin_bottom": 4,
+    "margin_left": 4,
+    "margin_right": 4,
+    "gap_before_value": 4,
+    "gap_value_after": 4
+  },
+  "defaults": {
+    "background": "#000000",
+    "before_color": "#ffffff",
+    "value_color": "#ffffff",
+    "after_color": "#ffffff"
+  },
+  "items": [
+    {
+      "target": "2026-12-25T00:00:00Z",
+      "display_seconds": 10,
+      "formats": [
+        {
+          "type": "days",
+          "precision": 2,
+          "before_text": "Christmas",
+          "after_text": "away",
+          "background": "#001030",
+          "value_color": "#ffcc00"
+        },
+        {
+          "type": "dhms",
+          "before_text": "Christmas",
+          "after_text": ""
+        }
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+
+- `meta.url` is where the *next* refetch is made from -- always the `url`
+  from the most-recently-fetched (or manually-seeded) JSON, not a fixed
+  config value. It may embed HTTP Basic Auth credentials
+  (`https://user:pass@host/path`). If absent/null, the device never
+  attempts a refetch -- it runs in a permanently static, manual-update-only
+  mode using whatever JSON was last uploaded to it.
+- `meta.refetch_after_seconds` controls how often (while `url` is present)
+  the device reconnects to Wi-Fi, re-syncs the clock via NTP, and re-fetches
+  the JSON.
+- `layout` is global (applies to all items, not overridable per-item).
+- `defaults` gives fallback colors for any field a format entry omits.
+  Includes `background`, so all four color fields live at the same level.
+- `items` must contain at least one entry. Each item must have at least one
+  entry in its own `formats` list.
+- Within a format entry, `before_text`/`after_text` may be empty/omitted --
+  the vertical space that text would have used is instead given entirely to
+  the countdown value's box (not split/redistributed elsewhere).
+- Past events (target date already passed) show a negative value with a
+  leading `-`, for both `days` and `dhms` format types. No special
+  "T+"-style wording.
+- A fetched/loaded JSON that's malformed or has zero items is rejected; the
+  previously cached copy is kept instead.
+
+## Display orientation
+
+Landscape, 320x172 logical, via the ST7789's hardware rotation register
+(MADCTL) -- the device is physically mounted on its side, USB-C connector
+on the **left** edge, 90 degrees clockwise from the panel's native portrait
+orientation. No accelerometer/gyroscope is present on this board (confirmed
+against Waveshare's docs), so this is a fixed orientation chosen at build
+time, not detected/adapted at runtime.
+
+Confirmed empirically (see README.md): `rotation=6` (MV|MY bits),
+`WIDTH=320, HEIGHT=172, xstart=0, ystart=34` -- baked into
+`device/lib/display.py`, which now targets landscape by default.
+
+## Rendering
+
+No existing MicroPython library provides text layout, multi-size fonts, or
+color-aware drawing for this display -- `st7789py` only has raw
+pixel/rect/blit primitives, and `framebuf`'s built-in font is a fixed 8x8
+bitmap. This means a custom rendering module, using:
+
+- The `layout` margins/gaps to compute three vertical boxes (before-text,
+  value, after-text) within the 320x172 landscape frame, redistributing an
+  empty text box's space entirely into the value's box.
+- A scaled-text routine that draws the built-in 8x8 bitmap font upscaled by
+  an integer factor N (nearest-neighbor, N x N blocks per source pixel),
+  with N computed automatically per box from the available space and
+  string length -- applied uniformly to all three text regions, which
+  naturally makes the value big since its box is the largest.
+- Colors as `#RRGGBB` hex strings in JSON, converted to RGB565 for drawing.
+
+## Value formats
+
+Two format types for now:
+
+- `"days"`: floating-point days until (positive) or since (negative) the
+  target, with `precision` decimal digits.
+- `"dhms"`: integer `D-HH:MM:SS` breakdown, sign-prefixed if negative.
+
+Display update cadence (how often the value is recalculated/redrawn) is
+**derived from the format**, not separately configured:
+
+- `"dhms"` updates every 1 second (its finest unit).
+- `"days"` with precision P updates every `10^-P` days converted to
+  seconds (e.g. precision=2 -> ~864s, precision=4 -> ~8.6s).
+- Floor of 0.1s (a tenth of a second) regardless of the derived value --
+  below this is just for visual smoothness, not meaningful accuracy (see
+  "Clock accuracy" below).
+
+## Item and format cycling
+
+- Items rotate circularly: show item N for its `display_seconds`, then
+  advance to item N+1.
+- Each item independently remembers which of its own `formats` entries is
+  currently selected (starting at index 0). No attempt to keep format
+  "equivalence" across different items -- their formats lists are
+  independent.
+- A short press of the BOOT button advances the *currently displayed*
+  item's format index by one (circularly) and redraws immediately. The
+  next time item rotation cycles back to that item, it resumes at
+  whichever format index was last selected for it.
+
+## Buttons
+
+- **BOOT** is wired to **GPIO9**, active-low (confirmed empirically --
+  see README.md). It behaves as a normal readable GPIO once past the
+  power-on boot-mode-selection window, so it's usable as a runtime user
+  button. Needs debouncing (mechanical switch).
+- **RESET** is wired to the chip's hardware EN/reset line, not a GPIO --
+  pressing it restarts the whole board before any code can run, so it
+  cannot be handled in software.
+- Future (not in the first build pass): a short press could also trigger
+  an immediate JSON refetch attempt.
+
+## Wi-Fi
+
+- An ordered list of `{ssid, password}` entries in a gitignored config
+  file (`device/wifi_config.py`), with a committed `.example` template
+  documenting the format.
+- Only connects when about to fetch (boot, and every
+  `refetch_after_seconds` while `meta.url` is present): scans for visible
+  networks, tries known SSIDs in list order (first known+visible match
+  wins) with a per-attempt timeout, then explicitly powers the radio off
+  (`network.WLAN(STA_IF).active(False)`, not just disconnects) until the
+  next scheduled connection.
+- Chosen over staying continuously connected because the radio is one of
+  the more power/heat-hungry parts of the chip, and the reconnect
+  overhead (a few seconds) is negligible against an hourly-ish refetch
+  cadence. Also complements Waveshare's own warning about backlight heat.
+- If `meta.url` is absent (static mode), Wi-Fi is never reconnected after
+  boot -- see "Clock accuracy" for why this is fine.
+
+## Time / clock accuracy
+
+- Target dates are ISO 8601 with an embedded UTC offset (e.g.
+  `+01:00` or `Z`). MicroPython has no built-in ISO 8601 parser, so this
+  needs a small custom one.
+- NTP sync happens at boot and again on every successful refetch (piggy-
+  backing on the Wi-Fi connection already being made for the fetch, so
+  it's free -- no extra radio-on time).
+- Accuracy: MicroPython's `ntptime` module sets the RTC with whole-second
+  resolution only, plus modest network latency -- combined accuracy is
+  roughly **+/-1 second** versus true UTC per sync. Between syncs, the
+  ESP32-C6's main crystal is speced to +/-10ppm (confirmed against
+  Espressif's hardware design guidelines), i.e. under ~1 second/day of
+  drift -- smaller than the sync uncertainty itself, so as long as
+  refetches happen at least roughly daily, overall accuracy stays bounded
+  by the ~1 second NTP figure, not by drift.
+- In static mode (no `meta.url`, so no periodic refetch/resync), the
+  clock free-runs after its one boot-time sync. At ~1s/day this is well
+  under a minute of drift after a month -- judged not worth extra
+  complexity to fix, since this mode is expected to be unlikely to be
+  used for extended periods anyway.
+- Sub-second display smoothness (the 0.1s update floor) is purely
+  cosmetic -- the underlying clock doesn't actually know "now" to better
+  than about a second, so don't read meaning into fractional-second
+  display precision. `days` format precision beyond what ~1 second of
+  accuracy can support is intentionally left uncapped -- it's fine for it
+  to "just look cool" at high precision rather than be meaningfully exact.
+
+## Data lifecycle
+
+- A default/example JSON (no real credentials -- safe to commit) lives in
+  the repo for bootstrapping/testing.
+- A real private JSON (which may have Basic Auth embedded in its `url`)
+  is never committed -- created locally and pushed to the device with the
+  same upload mechanism.
+- An upload script/Makefile target pushes a local JSON file to the
+  device's filesystem (seeding or resetting its data), and prints a
+  warning if the JSON being uploaded has no `meta.url` (since that means
+  no further auto-updates will happen).
+- The device always keeps the most recently successfully fetched (or
+  manually uploaded) JSON cached on its filesystem, and uses that as its
+  working copy.
+- If no cached JSON exists at all (a genuinely fresh device), there is by
+  definition no known `url` either, so no fetch is possible -- the device
+  shows a "no data" message and waits to be manually seeded.
+
+## Not yet designed / deferred
+
+- A small on-screen error indicator (e.g. a colored corner marker) for
+  conditions like "last Wi-Fi connect failed" or "last fetch was invalid
+  JSON" -- requested for later, not part of the first build pass.

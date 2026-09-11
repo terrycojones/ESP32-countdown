@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Downloaded MicroPython firmware images
+firmware/*.bin
+
+# Secrets -- never commit real Wi-Fi credentials or the real countdown data
+# JSON (which may embed Basic Auth credentials in its meta.url)
+device/wifi_config.py
+device/countdown_data.json
+
+# Machine-specific serial port (see README.md "Set your port once")
+port.txt
+*~

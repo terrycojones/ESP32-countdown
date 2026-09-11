@@ -1,0 +1,111 @@
+# PORT: command-line override (`make chip-info PORT=/dev/x`) always wins.
+# Otherwise, the first non-comment, non-blank line of port.txt (create it
+# with your device's port, e.g. `echo /dev/cu.usbmodem1101 > port.txt`;
+# gitignored, since it's machine-specific). Falls back to a hardcoded
+# guess if port.txt doesn't exist or has no such line. port_config.py
+# mirrors this same resolution for the upload_*.py scripts.
+PORT_FROM_FILE := $(strip $(shell grep -v '^[[:space:]]*\#' port.txt 2>/dev/null | grep -v '^[[:space:]]*$$' | head -n1))
+ifeq ($(PORT_FROM_FILE),)
+PORT_DEFAULT := /dev/cu.usbmodem1101
+else
+PORT_DEFAULT := $(PORT_FROM_FILE)
+endif
+PORT ?= $(PORT_DEFAULT)
+
+.PHONY: chip-info flash-info repl-check reset
+
+# Read-only: queries the chip's ROM bootloader for model/MAC. Safe to run anytime.
+chip-info:
+	uv run esptool --port $(PORT) chip-id
+
+# Read-only: queries the SPI flash chip's own JEDEC ID for manufacturer/size. Safe to run anytime.
+flash-info:
+	uv run esptool --port $(PORT) flash-id
+
+# Read-only: connects to the MicroPython REPL and prints version/build info to confirm it's alive.
+repl-check:
+	uv run mpremote connect $(PORT) exec "import sys; print(sys.implementation); print(sys.version)"
+
+# Soft-resets the board, so it re-runs /boot.py then /main.py from scratch --
+# an alternative to physically unplugging/replugging USB.
+reset:
+	uv run mpremote connect $(PORT) reset
+
+# --- DEVICE FILESYSTEM ---
+# These write files to the board's onboard filesystem (not the flash image
+# itself). Reversible, but will overwrite any existing files at the same path.
+
+.PHONY: install-lib install-main install-wifi-config test-display test-module test-text test-landscape test-logic test-render
+
+# Copies all device/lib/*.py modules to /lib on the board, where
+# MicroPython's import system looks for modules automatically.
+install-lib:
+	-uv run mpremote connect $(PORT) fs mkdir :lib
+	uv run mpremote connect $(PORT) cp device/lib/st7789py.py :lib/st7789py.py
+	uv run mpremote connect $(PORT) cp device/lib/display.py :lib/display.py
+	uv run mpremote connect $(PORT) cp device/lib/text.py :lib/text.py
+	uv run mpremote connect $(PORT) cp device/lib/colors.py :lib/colors.py
+	uv run mpremote connect $(PORT) cp device/lib/isotime.py :lib/isotime.py
+	uv run mpremote connect $(PORT) cp device/lib/countdownfmt.py :lib/countdownfmt.py
+	uv run mpremote connect $(PORT) cp device/lib/requests.py :lib/requests.py
+	uv run mpremote connect $(PORT) cp device/lib/countdown_data.py :lib/countdown_data.py
+	uv run mpremote connect $(PORT) cp device/lib/wifi.py :lib/wifi.py
+	uv run mpremote connect $(PORT) cp device/lib/render.py :lib/render.py
+
+# Copies device/main.py to the board's filesystem root as main.py, which
+# MicroPython runs automatically on every boot (after boot.py).
+install-main:
+	uv run mpremote connect $(PORT) cp device/main.py :main.py
+
+# Validates and copies the real (gitignored) device/wifi_config.py to the
+# board's filesystem root. See device/wifi_config.example.py for the format.
+install-wifi-config:
+	uv run python upload_wifi.py device/wifi_config.py --port $(PORT)
+
+# Runs device/test_display.py directly from the host without copying it to
+# the board -- good for quick iteration while tuning display parameters.
+test-display:
+	uv run mpremote connect $(PORT) run device/test_display.py
+
+# Runs device/test_module.py, which exercises the reusable device/lib/display.py
+# module (requires install-lib to have been run first).
+test-module:
+	uv run mpremote connect $(PORT) run device/test_module.py
+
+# Runs device/test_text.py, which exercises the scaled-text renderer in
+# device/lib/text.py (requires install-lib to have been run first).
+test-text:
+	uv run mpremote connect $(PORT) run device/test_text.py
+
+# Runs device/test_landscape.py to iterate on landscape rotation parameters.
+test-landscape:
+	uv run mpremote connect $(PORT) run device/test_landscape.py
+
+# Runs device/test_logic.py, sanity-checking colors.py/isotime.py/countdownfmt.py
+# directly on-device (requires install-lib to have been run first).
+test-logic:
+	uv run mpremote connect $(PORT) run device/test_logic.py
+
+# Runs device/test_render.py, exercising device/lib/render.py against the
+# JSON currently uploaded to the device (requires install-lib and a prior
+# `uv run python upload_json.py <path>`).
+test-render:
+	uv run mpremote connect $(PORT) run device/test_render.py
+
+# --- DANGER ZONE ---
+# Targets added below this line may ERASE or OVERWRITE the flash on the board.
+# Only run them deliberately, and double-check PORT points at the right device
+# (`ls /dev/cu.*` with the board plugged/unplugged to confirm) before running.
+
+FIRMWARE := firmware/ESP32_GENERIC_C6-20260824-v1.29.0.bin
+
+.PHONY: erase-flash flash-micropython
+
+# DESTRUCTIVE: wipes the entire flash chip (every byte -> 0xFF). Irreversible.
+erase-flash:
+	uv run esptool --port $(PORT) erase-flash
+
+# DESTRUCTIVE: writes the MicroPython image starting at flash address 0x0.
+# Run erase-flash first for a clean install.
+flash-micropython:
+	uv run esptool --port $(PORT) --baud 460800 write-flash 0x0 $(FIRMWARE)

@@ -1,0 +1,13 @@
+[project]
+name = "esp32-countdown"
+version = "0.1.0"
+description = "An event countdown display running on an ESP32-C6 with a built-in LCD"
+readme = "README.md"
+authors = [
+    { name = "terrycojones", email = "terry@fluidinfo.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "esptool>=5.4.0",
+    "mpremote>=1.29.0",
+]
