@@ -179,6 +179,8 @@ Destructive (erases/overwrites flash — see the Makefile's "DANGER ZONE" commen
 
 ## Technical details
 
+This project and the documenation (except for this single line!) was built entirely by Claude Code. That took about an hour following a couple of hours of discussion about how things should work, the JSON config format, and some testing to get colors, screen rotation, and text display working.
+
 The sections below cover *why* things work the way they do — hardware bring-up findings, a couple of real bugs hit along the way, and how the MicroPython boot process works. Rendering internals (layout math, color handling, scaled-font drawing) are documented inline in `device/lib/render.py`, `text.py`, and `colors.py` rather than repeated here. For the countdown *application's* design (JSON schema decisions, Wi-Fi/clock strategy, data lifecycle), see `DESIGN.md`.
 
 ### Display bring-up findings
@@ -194,6 +196,16 @@ The ST7789 init parameters needed for this specific panel aren't documented by W
 - **Orientation (landscape, what the app actually uses):** `rotation=6` (MV|MY bits set), `WIDTH=320, HEIGHT=172`, offset swapped to `xstart=0, ystart=34`. Confirmed the same way, board held with USB-C on the **left** edge (90° clockwise from portrait). Found by testing all four MV-based rotation values in turn: `rotation=4` (MV alone) gave a pure left-right mirror; `rotation=5` (MV|MX) gave a full 180° rotation rather than fixing it, because MX/MY's effective screen axes swap once MV is also set — they don't behave as a naive "horizontal/vertical mirror" once rotated; `rotation=6` (MV|MY) was the correct match with no mirroring at all.
 
 Lessons: if an ST7789 (or similar) panel renders a uniform but wrong-colored fill, and toggling color-order/inversion bits seems to do nothing, suspect the SPI mode before anything else — a wrong mode can make command bytes land unreliably while bulk data writes still "work" in a misleading way. Separately: once MV (row/column exchange) is set for a rotated orientation, don't assume MX/MY still mean "flip horizontal/flip vertical" the way they do at `rotation=0` — verify empirically rather than reasoning from the unrotated case.
+
+### How the text is drawn (scaled bitmap font)
+
+Neither `st7789py` nor the ST7789 controller itself has any concept of fonts or text — they only draw pixels/rectangles. MicroPython's `framebuf` module fills that gap, but only with *one* built-in font: a fixed 8×8-pixel monospace bitmap, accessible via `FrameBuffer.text()`. There's no way to ask for it at a different size directly, so getting a "large, fills most of the screen" countdown value (the whole point of the landscape layout) means scaling that tiny font up ourselves — `device/lib/text.py`:
+
+1. Render the string at its native 1× size into a small temporary **1-bit-per-pixel** framebuffer (`framebuf.MONO_HLSB`), sized exactly to the text — `len(text) * 8` pixels wide, 8 tall. This is just scratch space to get the raw glyph bitmap out of `framebuf.text()`; nothing here touches the display.
+2. Walk every pixel of that tiny bitmap. For each "on" (foreground) pixel, draw a solid `scale × scale` block at the corresponding position in the real, full-color destination framebuffer — i.e. nearest-neighbor upscaling, one square block per original pixel. This is why large text looks visibly blocky/pixelated rather than smooth — an inherent property of blowing up an 8×8 source this way, not a bug (see the scaled-text test results earlier in this project's development).
+3. The scale factor isn't fixed: `best_fit_scale()` computes the *largest* integer scale at which a given string fits a given pixel box, so a short value like `"3.21"` renders large while a longer one like `"3-05:42:11"` automatically comes out smaller, using the exact same source glyphs and code path either way — this is what lets `before_text`/value/`after_text` each size themselves to fill whatever box `render.py`'s layout gives them (see "JSON format reference" above).
+
+All of this happens against the in-memory frame — the scaled blocks are drawn via `fb.fill_rect()` calls on the destination `framebuf.FrameBuffer`, not sent to the display one at a time — so it's fast (single-digit milliseconds even for a full frame's worth of text) and only the final composed image gets sent to the screen in one blit. See the note below on why that blit needs a small fix-up of its own.
 
 ### `framebuf` colors need pre-swapping
 
