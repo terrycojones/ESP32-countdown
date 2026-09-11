@@ -23,7 +23,8 @@ from the hardware bring-up covered in README.md.
     "background": "#000000",
     "before_color": "#ffffff",
     "value_color": "#ffffff",
-    "after_color": "#ffffff"
+    "after_color": "#ffffff",
+    "brightness": 0.5
   },
   "items": [
     {
@@ -36,7 +37,8 @@ from the hardware bring-up covered in README.md.
           "before_text": "Christmas",
           "after_text": "away",
           "background": "#001030",
-          "value_color": "#ffcc00"
+          "value_color": "#ffcc00",
+          "brightness": 0.8
         },
         {
           "type": "dhms",
@@ -63,6 +65,18 @@ Notes:
 - `layout` is global (applies to all items, not overridable per-item).
 - `defaults` gives fallback colors for any field a format entry omits.
   Includes `background`, so all four color fields live at the same level.
+- `brightness` (0.0-1.0, backlight PWM duty) follows the identical
+  two-tier pattern: a format-level value overrides `defaults.brightness`,
+  which falls back to a hardcoded default (`display.DEFAULT_BRIGHTNESS`,
+  currently 0.5) if neither is set. No item-level tier, matching colors --
+  set it per-format directly if a specific item needs it. Unlike the color
+  fields, resolution uses `is None` checks rather than a truthy-based `or`
+  fallback, since `0.0` (backlight fully off) is a legitimate value that a
+  truthy check would wrongly treat as "not set". See
+  `display.resolve_brightness()`. Applied once per redraw (i.e. whenever
+  the currently-shown value is recalculated), so it takes effect
+  immediately on an item/format change -- BOOT-triggered format switches
+  included.
 - `items` must contain at least one entry. Each item must have at least one
   entry in its own `formats` list.
 - Within a format entry, `before_text`/`after_text` may be empty/omitted --
@@ -112,6 +126,13 @@ Two format types for now:
   target, with `precision` decimal digits.
 - `"dhms"`: integer `D-HH:MM:SS` breakdown, sign-prefixed if negative.
 
+A format entry may also set `"absolute_value": true`, which runs the
+underlying (signed) time delta through `abs()` before formatting -- for
+either type. Useful for an always-in-the-past target where the sign is
+just noise, e.g. a birthday: `before_text: "You are"`, `after_text: "days
+old"`, `absolute_value: true` reads as "You are 10957.83 days old" instead
+of "You are -10957.83 days old".
+
 Display update cadence (how often the value is recalculated/redrawn) is
 **derived from the format**, not separately configured:
 
@@ -152,12 +173,24 @@ Display update cadence (how often the value is recalculated/redrawn) is
 - An ordered list of `{ssid, password}` entries in a gitignored config
   file (`device/wifi_config.py`), with a committed `.example` template
   documenting the format.
-- Only connects when about to fetch (boot, and every
-  `refetch_after_seconds` while `meta.url` is present): scans for visible
-  networks, tries known SSIDs in list order (first known+visible match
-  wins) with a per-attempt timeout, then explicitly powers the radio off
+- Connects at boot (for a clock sync -- see "Time / clock accuracy") and
+  every `refetch_after_seconds` thereafter (for a clock sync *and* a JSON
+  refetch, while `meta.url` is present): scans for visible networks, tries
+  known SSIDs in list order (first known+visible match wins) with a
+  per-attempt timeout, then explicitly powers the radio off
   (`network.WLAN(STA_IF).active(False)`, not just disconnects) until the
   next scheduled connection.
+- **Boot deliberately does not attempt a JSON refetch when valid cached
+  data already exists** -- only the earlier "sync once at boot" was
+  intended, but the first implementation also fetched at boot, which meant
+  a slow-to-fail or unreachable `meta.url` blocked the very first render
+  behind a full fetch attempt (confirmed in testing: noticeably long delay
+  showing a black screen). Fixed by skipping the boot-time fetch outright
+  when cached data is available -- the first refetch attempt then happens
+  on the normal periodic schedule, `refetch_after_seconds` after boot,
+  exactly like every later one. (When there's no cached data at all,
+  there's no `meta.url` to fetch from anyway -- see "Data lifecycle" --
+  so this only matters for the "have data, url is bad" case.)
 - Chosen over staying continuously connected because the radio is one of
   the more power/heat-hungry parts of the chip, and the reconnect
   overhead (a few seconds) is negligible against an hourly-ish refetch
@@ -170,9 +203,10 @@ Display update cadence (how often the value is recalculated/redrawn) is
 - Target dates are ISO 8601 with an embedded UTC offset (e.g.
   `+01:00` or `Z`). MicroPython has no built-in ISO 8601 parser, so this
   needs a small custom one.
-- NTP sync happens at boot and again on every successful refetch (piggy-
-  backing on the Wi-Fi connection already being made for the fetch, so
-  it's free -- no extra radio-on time).
+- NTP sync happens at boot (the reason for that connection, when cached
+  data already exists -- see "Wi-Fi") and again on every periodic refetch
+  (piggy-backing on the Wi-Fi connection already being made for the
+  fetch, so it's free -- no extra radio-on time).
 - Accuracy: MicroPython's `ntptime` module sets the RTC with whole-second
   resolution only, plus modest network latency -- combined accuracy is
   roughly **+/-1 second** versus true UTC per sync. Between syncs, the

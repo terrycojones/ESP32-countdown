@@ -74,6 +74,20 @@ def set_brightness(backlight_pwm, brightness):
     backlight_pwm.duty_u16(int(brightness * 65535))
 
 
+def resolve_brightness(fmt, defaults):
+    """Two-tier fallback exactly like the color fields (format overrides
+    `defaults`) -- see DESIGN.md. Uses `is None` checks rather than the
+    color fields' truthy-based `or` fallback, since 0.0 (backlight fully
+    off) is a legitimate value that a truthy check would wrongly skip
+    past."""
+    value = fmt.get("brightness")
+    if value is None:
+        value = (defaults or {}).get("brightness")
+    if value is None:
+        value = DEFAULT_BRIGHTNESS
+    return value
+
+
 def blit_rgb565(display, buf, x, y, w, h):
     """Sends an RGB565 buffer from a framebuf.FrameBuffer to the display.
 

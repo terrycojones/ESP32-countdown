@@ -34,8 +34,13 @@ reset:
 # --- DEVICE FILESYSTEM ---
 # These write files to the board's onboard filesystem (not the flash image
 # itself). Reversible, but will overwrite any existing files at the same path.
+# NOTE: copying a file interrupts main.py if it's running, and does NOT
+# auto-resume it -- follow install-lib/install-main with `make reset` if
+# the app was running (see README.md "Uploading interrupts the running
+# app"). install-wifi-config resets automatically, via upload_wifi.py's
+# default behavior (pass --no-reset to upload_wifi.py directly to skip it).
 
-.PHONY: install-lib install-main install-wifi-config test-display test-module test-text test-landscape test-logic test-render
+.PHONY: install-lib install-main install-wifi-config test-display test-module test-text test-landscape test-logic test-host test-render
 
 # Copies all device/lib/*.py modules to /lib on the board, where
 # MicroPython's import system looks for modules automatically.
@@ -81,10 +86,17 @@ test-text:
 test-landscape:
 	uv run mpremote connect $(PORT) run device/test_landscape.py
 
-# Runs device/test_logic.py, sanity-checking colors.py/isotime.py/countdownfmt.py
-# directly on-device (requires install-lib to have been run first).
+# Runs tests/test_logic.py, sanity-checking colors.py/isotime.py/countdownfmt.py/
+# countdown_data.py directly on-device (requires install-lib to have been run
+# first). NOT a pytest test -- these modules need MicroPython's stdlib, not
+# CPython's; see test-host below for the host-side (pytest) suite.
 test-logic:
-	uv run mpremote connect $(PORT) run device/test_logic.py
+	uv run mpremote connect $(PORT) run tests/test_logic.py
+
+# Runs the host-side pytest suite (upload_json.py/upload_wifi.py/port_config.py
+# validation logic) -- pure Python, no device/PORT needed.
+test-host:
+	uv run pytest tests/
 
 # Runs device/test_render.py, exercising device/lib/render.py against the
 # JSON currently uploaded to the device (requires install-lib and a prior

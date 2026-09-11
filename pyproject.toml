@@ -11,3 +11,18 @@ dependencies = [
     "esptool>=5.4.0",
     "mpremote>=1.29.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/ also holds tests/test_logic.py, which is NOT a pytest test -- it
+# runs on the MicroPython device (`make test-logic`) and imports modules
+# from device/lib/ that don't exist under plain CPython. Whitelisting the
+# host-side files explicitly here keeps pytest from trying (and failing)
+# to collect it.
+python_files = ["test_upload_json.py", "test_upload_wifi.py", "test_port_config.py"]
+pythonpath = ["."]

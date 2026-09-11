@@ -79,20 +79,30 @@ def refresh_data(data):
 # -- Boot sequence --------------------------------------------------------
 data = countdown_data.load_cache()
 
-connected = connect_and_sync()
-if connected:
-    data, changed = refresh_data(data)
-    wifi.disconnect_and_off()
-
 if data is None:
     # No cache at all, and (per DESIGN.md) no way to know a fetch URL
     # without one -- nothing to do but wait for a manual
     # `make upload-json JSON=...` followed by a reboot. BOOT-triggered
     # recheck without rebooting is deferred, see DESIGN.md "Not yet
-    # designed / deferred".
+    # designed / deferred". Still connect for a clock sync in case that
+    # helps once data does arrive -- there's no meta.url to fetch from
+    # either way.
+    if connect_and_sync():
+        wifi.disconnect_and_off()
     show_message("No data")
     while True:
         time.sleep(5)
+
+# We already have valid data to show -- connect only for a clock sync here,
+# and deliberately *don't* attempt a JSON refetch at boot even if meta.url
+# is set: a slow-to-fail or unreachable URL would otherwise block the very
+# first render behind a full fetch attempt (observed in practice: the
+# screen stayed black far longer than felt right). The first refetch
+# attempt happens on the normal periodic schedule below instead -- no
+# special "try once at boot" case, refetch_after_seconds governs it from
+# here exactly like every later refetch.
+if connect_and_sync():
+    wifi.disconnect_and_off()
 
 # -- Runtime state ----------------------------------------------------------
 item_index = 0
@@ -146,6 +156,7 @@ while True:
     fmt = item["formats"][format_indices[item_index]]
     interval = countdownfmt.update_interval_seconds(fmt)
     if now - last_draw_time >= interval:
+        display.set_brightness(d.backlight, display.resolve_brightness(fmt, data.get("defaults", {})))
         target = isotime.parse_iso8601(item["target"])
         value_str = countdownfmt.format_value(target, now, fmt)
         render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), data.get("defaults", {}), fmt, value_str)

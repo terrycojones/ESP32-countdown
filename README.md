@@ -28,6 +28,15 @@ Waveshare's own docs note: keep backlight brightness at 50% or lower for extende
 
 Everything below the "Which MicroPython image do I need?" step assumes this exact board — display pin numbers, panel geometry, and the landscape rotation parameters are all specific to its wiring.
 
+### Flash usage
+
+Of the 8MB total flash, ~2MB is the MicroPython firmware image/bootloader/partition table, and the remaining 6MB is the filesystem where this project's files live. Measured via `os.statvfs('/')` and `os.listdir()` on the actual device:
+
+- Filesystem: 6,291,456 bytes total, **102,400 bytes used (~1.6%)**, ~5.9MB free.
+- The 44,111 raw bytes of actual file content (used is higher due to LittleFS's block-based allocation and metadata overhead) breaks down as: `requests.py` and `st7789py.py` (vendored third-party libraries) at ~8.6KB each dominate; everything written for this project (`display.py`, `render.py`, `countdown_data.py`, `isotime.py`, `wifi.py`, `main.py`, etc.) is 1–6KB each.
+
+So: roughly 100KB used out of 8MB total flash (~1.2%) — plenty of headroom. Reproduce this yourself with `mpremote connect <port> exec "import os; print(os.statvfs('/'))"` plus `os.listdir()`/`os.stat()` to break it down by file.
+
 ## Which MicroPython image do I need?
 
 MicroPython publishes a separate firmware build per chip family (original ESP32, S2, S3, C3, C6, C2...), and flashing the wrong one won't boot correctly. Don't guess from a board's marketing name alone — vendors sometimes ship different chip revisions under similar-looking product names. The reliable way to find out:
@@ -93,6 +102,8 @@ uv run python upload_json.py device/countdown_data.example.json
 
 It validates the JSON before sending it (at least one item, each with at least one format) and refuses to upload anything that fails; it also warns (without refusing) if the JSON has no `meta.url`, since that means the device will only update when you run this command again — it will never auto-refetch. Defaults to the same `PORT` as the Makefile; override with `--port`.
 
+It resets the board after uploading, by default — see "Uploading interrupts the running app" below for why that's needed. Pass `--no-reset` to skip it, e.g. if you're about to upload the Wi-Fi config too and only want one reset at the end. `upload_wifi.py` (below) behaves the same way.
+
 Finally:
 
 ```
@@ -112,6 +123,7 @@ Top level:
 | `layout.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no, default 0 | Outer margins of the usable content area. |
 | `layout.gap_before_value` / `gap_value_after` | number (px) | no, default 0 | Vertical gap around the value box, applied only when the adjacent text is non-empty. |
 | `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any format that doesn't specify its own. |
+| `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
 | `items` | array | **yes**, ≥1 | The countdown events to cycle through. |
 
 Each entry in `items`:
@@ -122,14 +134,27 @@ Each entry in `items`:
 | `display_seconds` | number | **yes** | How long this item stays on screen before rotating to the next item. |
 | `formats` | array | **yes**, ≥1 | Different ways to display this item's countdown; BOOT cycles through these (see below). |
 
+**Setting a timezone on `target`:** add a standard ISO-8601 offset right after the time — `±HH:MM`, or `Z` for UTC:
+
+| Meaning | `target` |
+|---|---|
+| UTC | `"2026-12-25T00:00:00Z"` |
+| UTC+1 (e.g. Central European Time, winter) | `"2026-12-25T00:00:00+01:00"` |
+| UTC-5 (e.g. US Eastern, standard time) | `"2026-12-25T00:00:00-05:00"` |
+| UTC+5:30 (e.g. India) | `"2026-12-25T00:00:00+05:30"` |
+
+The parser (`device/lib/isotime.py`) only reads a **fixed numeric offset** — there's no timezone name lookup or daylight-saving awareness. If your zone observes DST, use whichever offset is actually correct for the date the event falls on (e.g. Central European Time is `+01:00` in winter but `+02:00` in summer) — nothing resolves that automatically, you have to pick the right one when writing the JSON.
+
 Each entry in a `formats` list:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `type` | `"days"` or `"dhms"` | **yes** | `"days"`: floating-point days remaining (or elapsed, if past). `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
 | `precision` | integer | only for `"days"` | Decimal digits shown — also determines how often the value is recalculated, see below. |
-| `before_text` / `after_text` | string | no | Text above/below the value. Leaving one empty gives its space entirely to the value, making it bigger. |
+| `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (either type) — for an always-in-the-past target where the sign is just noise, e.g. `before_text: "You are"`, `after_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
+| `before_text` / `after_text` | string | no | Text above/below the value. Omitting a field entirely and setting it to `""` are equivalent — either way, its space is given entirely to the value, making it bigger. |
 | `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides `defaults` for this specific format. |
+| `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides `defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). No item-level tier — set it on each of an item's formats individually if needed. |
 
 Notes:
 
@@ -141,18 +166,27 @@ See `DESIGN.md` for the reasoning behind these choices (why colors/text live at 
 
 ## Project layout
 
-- `src/esp32_countdown/` — host-side Python package (currently a placeholder entry point; see "Installing")
 - `device/lib/` — MicroPython modules copied onto the board's `/lib` (ST7789 driver, display init, scaled-text renderer, colors, ISO-8601 parsing, JSON fetch/cache, Wi-Fi, rendering — each documented via comments in its own file)
 - `device/main.py` — the application entry point, copied to the board's filesystem root so it runs on boot
-- `device/test_*.py` — bring-up/verification scripts, run directly from the host via `mpremote run` (not copied to the board permanently)
+- `device/test_*.py` — bring-up/verification scripts requiring a human to look at the physical screen (no automated pass/fail), run directly from the host via `mpremote run` (not copied to the board permanently) — see "Where are the tests?" below
 - `device/wifi_config.example.py` / `device/countdown_data.example.json` — committed templates (no real secrets); see "Setting up Wi-Fi" / "Uploading your countdown data"
 - `upload_json.py` — validates and uploads a countdown data JSON file to the board
 - `upload_wifi.py` — validates and uploads `device/wifi_config.py` to the board
 - `port_config.py` — shared helper both upload scripts use to read `port.txt`
 - `port.txt` — your device's serial port (gitignored, machine-specific); see "Set your port once" above
 - `firmware/` — downloaded MicroPython `.bin` firmware images (gitignored)
+- `tests/` — automated tests with real pass/fail, unlike `device/test_*.py`; see "Where are the tests?" below
 - `Makefile` — records every command used against the board; see targets below
 - `DESIGN.md` — design rationale for the countdown application (JSON schema decisions, rendering approach, Wi-Fi/clock/data-lifecycle behavior)
+
+## Where are the tests?
+
+Two genuinely different kinds, run two different ways:
+
+- **`tests/test_logic.py`** — real assertions (`assert`, not just prints) for the pure-logic MicroPython modules: `colors.py`, `isotime.py`, `countdownfmt.py`, `countdown_data.py`'s `validate()`/`split_auth()`. Runs *on the device* (`make test-logic`), since these modules use MicroPython's stdlib subset, not CPython's — it is **not** a pytest test, and `pyproject.toml`'s `[tool.pytest.ini_options]` explicitly excludes it from pytest collection so `make test-host` doesn't try (and fail) to import it.
+- **`tests/test_port_config.py`**, **`test_upload_json.py`**, **`test_upload_wifi.py`** — a normal pytest suite for the host-side scripts' validation logic (`port_config.read_port()`, `upload_json.validate_countdown_json()`, `upload_wifi.validate_networks()`/`load_networks()`). Pure Python, no device or `PORT` needed: `make test-host` (or `uv run pytest tests/` directly).
+
+Everything else under `device/test_*.py` is a **manual bring-up/verification script**, not an automated test — it prints diagnostics and/or draws something on the real screen, and a human (that's been you, throughout this README's development) judges whether it's correct. That's how the SPI-mode, rotation, and `framebuf` color-order bugs earlier in this document were actually found — genuine hardware behavior that no unit test could have caught without the physical panel in the loop.
 
 ## Makefile targets
 
@@ -162,7 +196,9 @@ Read-only / safe:
 - `make flash-info` — query the SPI flash chip's own JEDEC ID (manufacturer/size)
 - `make repl-check` — connect to the MicroPython REPL and print version info
 - `make reset` — soft-reset the board, re-running `boot.py`/`main.py` from scratch
-- `make test-display` / `test-module` / `test-text` / `test-landscape` / `test-logic` / `test-render` — bring-up/verification scripts exercising individual pieces (display init, scaled text, rotation, core logic, full rendering) — see comments in each `device/test_*.py` file
+- `make test-display` / `test-module` / `test-text` / `test-landscape` / `test-render` — manual bring-up/verification scripts, no automated pass/fail (see "Where are the tests?" above)
+- `make test-logic` — real automated assertions, run on-device (see "Where are the tests?" above)
+- `make test-host` — real automated pytest suite for the host-side scripts, no device needed (see "Where are the tests?" above)
 
 Writes to the board's filesystem (reversible):
 
@@ -219,9 +255,27 @@ The real fix: pre-swap each *color value* (`colors.byteswap16()`) before handing
 
 MicroPython's filesystem lives in the flash space left over after the firmware image itself. On every boot it runs `/boot.py` (low-level setup; the stock one that ships with the firmware does nothing) and then `/main.py` (the application) if present. Neither is installed by `mpremote run <file>` — that command sends a file's contents to the already-running interpreter over serial and executes it once, without writing it to the board's filesystem. To make something run automatically on power-up, it has to be copied to the board as `main.py` (see `make install-main`).
 
+### Boot doesn't block on a slow/invalid `meta.url`
+
+An early version of `main.py` connected to Wi-Fi at boot and *always* attempted a JSON refetch if `meta.url` was set — including when valid cached data already existed to show immediately. In practice this meant a bad or unreachable URL (wrong hostname, unresponsive server) could leave the screen black for a long time before anything appeared, since the very first render was blocked behind a full fetch attempt. Confirmed by testing against a deliberately nonexistent hostname with valid cached data present: the old boot sequence stalled noticeably; after the fix, the cached item appeared within a few seconds (just the Wi-Fi connect + clock sync).
+
+Fixed: boot now connects to Wi-Fi only for a clock sync when cached data already exists — it deliberately skips attempting a refetch at boot. The first real refetch attempt happens on the normal periodic schedule instead, `meta.refetch_after_seconds` after boot, exactly like every later one — no special "try once immediately" case. (This only matters when cached data exists with a bad URL; with no cached data at all there's no `meta.url` to fetch from anyway, so that path was never affected — see "Data lifecycle" in `DESIGN.md`.)
+
+### Uploading interrupts the running app
+
+Copying a file to the board (`mpremote cp`, which `upload_json.py`, `upload_wifi.py`, and every `install-*` Makefile target use) has to enter MicroPython's "raw REPL" mode to do the transfer over serial. Entering that mode interrupts whatever's currently running and clears its state — but, unlike an actual reset, it does *not* automatically re-run `boot.py`/`main.py` afterward. Confirmed empirically: after a `cp` while `main.py` was actively looping, its runtime variables (`item_index` and friends) were gone even several seconds later, and the display just stayed on whatever it last rendered (black, if that happened to be mid-boot) — it never resumed on its own.
+
+So: any time a file gets copied to a device that's running the countdown app, that app stops and the display freezes until something actually resets the board. `upload_json.py`/`upload_wifi.py` do this automatically afterward (`make reset`'s underlying `mpremote ... reset`), unless passed `--no-reset` — useful if you're uploading several files back-to-back and only want one reset at the end. The `install-*` Makefile targets don't do this automatically; follow one with `make reset` (or a physical unplug/replug) if the app was running.
+
 ### NTP reliability
 
 MicroPython's `ntptime.settime()` defaults (`host="pool.ntp.org"`, `timeout=1` second) turned out unreliable in testing — `pool.ntp.org`'s round-robin sometimes resolves to a slow/unreachable server, and NTP is a single UDP request/response with no built-in retry, so even a reliable host (`time.cloudflare.com`) occasionally drops a packet. `device/lib/wifi.py`'s `sync_time()` uses an explicit retry loop rather than just a longer timeout.
+
+### Dates before 2000 need a custom epoch calculation
+
+`isotime.py` originally used `time.mktime()` to convert a parsed date into epoch seconds. That broke silently for any `target` before MicroPython's 2000-01-01 epoch — found via a real event dated 1963: instead of a negative (pre-epoch) value, `time.mktime((1963, 8, 30, 0, 0, 0, 0, 0))` returned `3148180096`, a huge *positive* number. The cause is unsigned 32-bit overflow in the platform's underlying C implementation — the correct value is negative, and wrapping a negative 32-bit value as unsigned produces exactly this kind of huge positive result. The visible symptom was a countdown value with the wrong sign *and* wrong magnitude (not just a missing `-`), which made it initially look like a text-rendering/width bug rather than a date-parsing one.
+
+This matters more than it might for a typical project: the `absolute_value` format option ("You are X days old") exists specifically for birthdates, which are very commonly pre-2000. The fix replaces `time.mktime()` entirely with a custom `_days_from_civil()` — Howard Hinnant's well-known [days-from-civil algorithm](https://howardhinnant.github.io/date_algorithms.html#days_from_civil), correct for any proleptic-Gregorian year using plain integer arithmetic, no libc `mktime` involved. Verified against known reference points (`2000-01-01` → `0`, `1970-01-01` → `-946684800`) and the original failing 1963 date, now covered by a permanent regression test in `tests/test_logic.py`.
 
 ## Status
 

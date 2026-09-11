@@ -7,6 +7,10 @@ MIN_UPDATE_INTERVAL = 0.1  # seconds; below this is cosmetic only, see DESIGN.md
 
 def format_value(target_epoch, now_epoch, fmt):
     delta_seconds = target_epoch - now_epoch  # positive = future, negative = past
+    if fmt.get("absolute_value"):
+        # e.g. a birthday (always in the past): "You are XXX days old"
+        # reads better than a negative number -- see DESIGN.md.
+        delta_seconds = abs(delta_seconds)
     ftype = fmt.get("type")
 
     if ftype == "days":

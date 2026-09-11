@@ -1,0 +1,65 @@
+{
+    "meta": {
+	"url": "https://fluidinfo.com/other/terry-ESP32-events.json",
+	"refetch_after_seconds": 120
+    },
+    "layout": {
+	"margin_top": 4,
+	"margin_bottom": 4,
+	"margin_left": 4,
+	"margin_right": 4,
+	"gap_before_value": 4,
+	"gap_value_after": 4
+    },
+    "defaults": {
+	"background": "#001030",
+	"value_color": "#ffcc00",
+	"before_color": "#ffffff",
+	"after_color": "#ffffff"
+    },
+    "items": [
+	{
+	    "target": "2026-09-18T19:54:00+02:00",
+	    "display_seconds": 10,
+	    "formats": [
+		{
+		    "type": "days",
+		    "precision": 7,
+		    "before_text": "See you in",
+		    "after_text": "days"
+		},
+		{
+		    "type": "dhms",
+		    "before_text": "See you in"
+		}
+	    ]
+	},
+	{
+	    "target": "1963-08-30T00:00:00Z",
+	    "display_seconds": 8,
+	    "formats": [
+		{
+		    "type": "days",
+		    "precision": 0,
+		    "before_text": "You're",
+		    "after_text": "days old",
+		    "absolute_value": true
+		}
+	    ]
+	},
+	{
+	    "target": "2020-01-01T00:00:00Z",
+	    "display_seconds": 8,
+	    "formats": [
+		{
+		    "type": "days",
+		    "precision": 0,
+		    "before_text": "The pandemic started",
+		    "after_text": "days ago",
+		    "absolute_value": true,
+		    "brightness": 0.5
+		}
+	    ]
+	}
+    ]
+}
