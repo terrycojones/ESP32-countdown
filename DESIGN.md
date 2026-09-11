@@ -238,6 +238,29 @@ Display update cadence (how often the value is recalculated/redrawn) is
   device's filesystem (seeding or resetting its data), and prints a
   warning if the JSON being uploaded has no `meta.url` (since that means
   no further auto-updates will happen).
+- The config can also be authored in TOML (`upload_json.py` converts by
+  file extension) -- MicroPython has no TOML support at all, so this is a
+  host-side-only convenience; the device only ever sees/stores JSON.
+  Converting normally writes a real `.json` file alongside the input (not
+  just a transient upload artifact), since that same JSON is what needs to
+  be hosted at `meta.url` for the device's own later refetches -- those
+  always request JSON, regardless of what format you authored in.
+- `upload_json.py` never uploads to `meta.url`'s server itself by
+  default -- it only reminds you to. An optional `meta.upload_command`
+  (a shell command template, `{path}` replaced with the local JSON path,
+  e.g. `"scp {path} me@example.com:/var/www/countdown.json"`) plus
+  `--upload` runs that automatically instead. Deliberately run via
+  `shlex.split` + `subprocess.run`, not `shell=True` -- no pipes/`&&`/
+  redirects, since a config file (however self-authored) running an
+  unrestricted shell command is a meaningfully bigger blast radius than
+  running one fixed, split argv. `--upload` without `meta.upload_command`
+  set is an error, not a silent no-op.
+- When `--upload` handles getting the JSON to `meta.url`'s server itself,
+  there's no more need for the "write a persistent companion .json" case
+  above -- `prepare_upload_path()` writes to a temp file instead (cleaned
+  up via a `finally` block once `main()` is done with it), unless
+  `--json-out` is given explicitly, which always wins regardless of
+  `--upload`.
 - The device always keeps the most recently successfully fetched (or
   manually uploaded) JSON cached on its filesystem, and uses that as its
   working copy.

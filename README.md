@@ -100,7 +100,11 @@ uv run python upload_json.py device/countdown_data.example.json
 # or your own file: uv run python upload_json.py path/to/your-events.json
 ```
 
-It validates the JSON before sending it (at least one item, each with at least one format) and refuses to upload anything that fails; it also warns (without refusing) if the JSON has no `meta.url`, since that means the device will only update when you run this command again — it will never auto-refetch. Defaults to the same `PORT` as the Makefile; override with `--port`.
+It validates the config before sending it (at least one item, each with at least one format) and refuses to upload anything that fails; it also warns (without refusing) if there's no `meta.url`, since that means the device will only update when you run this command again — it will never auto-refetch. Defaults to the same `PORT` as the Makefile; override with `--port`.
+
+You can also write the config in TOML instead of JSON — pass a `.toml` file and it's converted automatically (MicroPython has no TOML support, so the device only ever sees/stores JSON either way). Since `meta.url` points at a server the device itself later re-fetches from directly (as JSON), the converted file is normally **written out as a real file** next to the input (same name, `.json` extension, or `--json-out PATH` to choose another location) rather than just used transiently — that's the file to also upload to wherever `meta.url` points. Exception: if `--upload` is also given (see below), `meta.upload_command` handles getting it to that server itself, so there's nothing left needing a persistent local copy — it's written to a temp file and cleaned up afterward instead, unless `--json-out` is given explicitly (which always wins). TOML has no `null`, so represent "no `meta.url`" (static mode) by just omitting the `url` key entirely rather than setting it to anything.
+
+If `meta.url` is set, the script reminds you to also get the JSON onto that server yourself — it doesn't do that automatically by default. To automate it, set `meta.upload_command` to a shell command template (with `{path}` standing in for the local JSON path, e.g. `"scp {path} me@example.com:/var/www/countdown.json"`) and pass `--upload`. This runs via `shlex.split` + `subprocess`, not a real shell, so pipes/`&&`/redirects in the command won't work — deliberate, since a config file running an *unrestricted* shell command is a meaningfully bigger risk than one fixed, split command, even for a config you wrote yourself. `--upload` with no `meta.upload_command` set is an error, not a silent no-op.
 
 It resets the board after uploading, by default — see "Uploading interrupts the running app" below for why that's needed. Pass `--no-reset` to skip it, e.g. if you're about to upload the Wi-Fi config too and only want one reset at the end. `upload_wifi.py` (below) behaves the same way.
 
@@ -120,6 +124,7 @@ Top level:
 |---|---|---|---|
 | `meta.url` | string or `null` | no | Where to fetch the *next* update from (may embed HTTP Basic Auth: `https://user:pass@host/path`). Omitted/`null` = static mode, never auto-refetches. |
 | `meta.refetch_after_seconds` | number | no | How often (while `meta.url` is set) to reconnect to Wi-Fi, re-sync the clock, and refetch. |
+| `meta.upload_command` | string | no | Host-side-only, not read by the device: a shell command template (`{path}` → local JSON path) that `upload_json.py --upload` runs to push the JSON to `meta.url`'s server. See "Uploading your countdown data". |
 | `layout.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no, default 0 | Outer margins of the usable content area. |
 | `layout.gap_before_value` / `gap_value_after` | number (px) | no, default 0 | Vertical gap around the value box, applied only when the adjacent text is non-empty. |
 | `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any format that doesn't specify its own. |
