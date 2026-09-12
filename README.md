@@ -193,13 +193,14 @@ directly (as JSON, since it has no TOML parser either), the converted
 file is normally **written out as a real file** next to the input
 (same name, `.json` extension, or `--json-out PATH` to choose another
 location) rather than just used transiently — that's the file to also
-upload to wherever `meta.url` points. Exception: if `--upload` is also
-given (see below), `meta.upload_command` handles getting it to that
-server itself, so there's nothing left needing a persistent local
-copy — it's written to a temp file and cleaned up afterward instead,
-unless `--json-out` is given explicitly (which always wins). TOML has
-no `null`, so represent "no `meta.url`" (static mode) by just omitting
-the `url` key entirely rather than setting it to anything.
+upload to wherever `meta.url` points. If there's no `meta.url` at all,
+or `--upload` is also given (see below, `meta.upload_command` handles
+getting it to the server itself), there's nothing left needing a
+persistent local copy — it's written to a temp file and cleaned up
+afterward instead, unless `--json-out` is given explicitly (which
+always wins). TOML has no `null`, so represent "no `meta.url`" (static
+mode) by just omitting the `url` key entirely rather than setting it
+to anything.
 
 Careful: that default output path is derived from the input path (same
 name, `.json` extension), so if you already have an unrelated `.json`
@@ -314,10 +315,10 @@ Each entry in a `formats` list:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | `"days"`, `"hours"`, `"minutes"`, `"seconds"`, or `"dhms"` | **yes** | The first four: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit. `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
-| `precision` | integer | only for `"days"`/`"hours"`/`"minutes"`/`"seconds"` | Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) `"dhms"`. |
+| `type` | `"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"`, or `"dhms"` | **yes** | The first five: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit (`"years"` uses the 365.25-day Julian year, the usual astronomical/calendar average that accounts for leap years). `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
+| `precision` | integer | only for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` | Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) `"dhms"`. |
 | `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (any `type`) — for an always-in-the-past target where the sign is just noise, e.g. `before_text: "You are"`, `after_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
-| `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
+| `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
 | `before_text` / `after_text` | string | no | Text above/below the value. Omitting a field entirely and setting it to `""` are equivalent — either way, its space is given entirely to the value, making it bigger. |
 | `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides `defaults` for this specific format. |
 | `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides `defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). No item-level tier — set it on each of an item's formats individually if needed. |
@@ -327,10 +328,11 @@ Each entry in a `formats` list:
 Notes:
 
 - **Update cadence isn't configured directly** — it's derived from the
-  format: `"dhms"` recalculates every second; `"days"`/`"hours"`/
-  `"minutes"`/`"seconds"` recalculate every `10^-precision` of that unit
-  converted to seconds (e.g. `days` at `precision: 2` → ~14 minutes;
-  `seconds` at `precision: 0` → every 1s), with a 0.1-second floor.
+  format: `"dhms"` recalculates every second; `"years"`/`"days"`/
+  `"hours"`/`"minutes"`/`"seconds"` recalculate every `10^-precision` of
+  that unit converted to seconds (e.g. `days` at `precision: 2` → ~14
+  minutes; `seconds` at `precision: 0` → every 1s), with a 0.1-second
+  floor.
 - **BOOT button**: a **short** press advances the *currently displayed*
   item to its next `formats` entry (wrapping around). Each item
   remembers its own chosen format independently as items rotate —
@@ -681,11 +683,11 @@ test in `tests/test_logic.py`.
 
 ### This device's floats are 32-bit, not 64-bit
 
-Confirmed empirically while adding the `commas` format option: `1.1 + 2.2` gives `3.3000002` here, not CPython's usual `3.3000000000000003` — the fingerprint of single-precision (32-bit) floats, not doubles. Two consequences, both already-known limitations rather than new bugs:
+Confirmed empirically while adding the `commas` format option: `1.1 + 2.2` gives `3.3000002` here, not CPython's usual `3.3000000000000003` — the fingerprint of single-precision (32-bit) floats, not doubles. Two consequences:
 
 First, and directly relevant to `commas`: MicroPython's f-strings/`str.format()` silently *ignore* the `,` thousands-separator flag on this build — `f'{1234567.9:,.2f}'` produces `'1234567.90'`, no comma, and no error either. So `commas` is implemented by hand (`countdownfmt._add_commas()`, plain string manipulation on the already-formatted number), not via the standard format spec.
 
-Second: for a large enough delta at a high enough `precision`, float32's ~7 significant decimal digits can measurably shift the last displayed digit of a `"days"`/`"hours"`/`"minutes"`/`"seconds"` value — found by comparing a ~2 billion second delta at `precision=6` against the mathematically correct value: float32 gives `23148.148000`, the true value is `23148.148160`. `target_epoch`/`now_epoch` are always exact ints (from `isotime.py`/`time.time()`), so this only affects the final unit conversion, not the underlying delta itself — and per "Clock accuracy" in `DESIGN.md`, uncapped high-`precision` values were already treated as cosmetic ("look cool") rather than meaningfully exact, so this compounds an existing acknowledged limitation rather than introducing a new one.
+Second — this one was a real, user-visible bug, not just cosmetic: for a large enough delta, `format_value()`'s old `delta_seconds / unit_seconds` float division lost enough precision that the displayed value stopped changing every tick. Reported as "the displayed number of seconds does not change" for a `"seconds"`-since-1963 countdown (delta ≈ 2 billion seconds) — float32 only exactly represents integers up to 2**24 (~16.7 million), so the division rounded to the nearest ~100, and the display appeared frozen for over a minute at a time between visible jumps. Fixed in `countdownfmt.format_value()` by doing the value/precision math in pure integer arithmetic throughout (scale the exact-integer delta by `10**precision`, integer-divide with rounding, then string-slice in the decimal point) — the delta never gets converted through a float at all, so the result is now exact regardless of how large the delta or `precision` get. Covered by a permanent regression test in `tests/test_logic.py` asserting consecutive whole seconds produce distinct, correctly-incrementing values for a ~2 billion second delta.
 
 ### Onboard RGB LED needs R/G swapped
 
@@ -757,9 +759,9 @@ to break it down by file.
       confirmed working end-to-end (fixed color, multi-color loop, and
       the long-press toggle)
 - [x] Full countdown app design written up (see `DESIGN.md`)
-- [x] `"hours"`/`"minutes"`/`"seconds"` format types added alongside
-      `"days"` (same unit-family implementation in `countdownfmt.py`),
-      confirmed working end-to-end on real hardware
+- [x] `"hours"`/`"minutes"`/`"seconds"`/`"years"` format types added
+      alongside `"days"` (same unit-family implementation in
+      `countdownfmt.py`), confirmed working end-to-end on real hardware
 - [x] `commas` format option (hand-rolled thousands separators — this
       device's f-strings silently ignore the standard `,` flag),
       confirmed working end-to-end on real hardware

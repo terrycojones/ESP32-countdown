@@ -121,7 +121,7 @@ def test_prepare_upload_path_json_input_unchanged(tmp_path):
 
 def test_prepare_upload_path_toml_default_writes_persistent_companion(tmp_path):
     toml_file = tmp_path / "events.toml"
-    data = {"items": [_item()]}
+    data = {"meta": {"url": "https://example.com/x.json"}, "items": [_item()]}
     path, temp_dir = upload_json.prepare_upload_path(toml_file, data, None, False)
     assert path == toml_file.with_suffix(".json")
     assert temp_dir is None
@@ -132,12 +132,26 @@ def test_prepare_upload_path_toml_default_writes_persistent_companion(tmp_path):
 
 def test_prepare_upload_path_toml_with_upload_uses_temp_file(tmp_path):
     toml_file = tmp_path / "events.toml"
-    data = {"items": [_item()]}
+    data = {"meta": {"url": "https://example.com/x.json"}, "items": [_item()]}
     path, temp_dir = upload_json.prepare_upload_path(toml_file, data, None, True)
     assert temp_dir is not None
     assert path.exists()
     assert path != toml_file.with_suffix(".json")
     assert not toml_file.with_suffix(".json").exists(), "no file should be left next to the .toml input"
+    temp_dir.cleanup()
+    assert not path.exists(), "temp file should be gone after cleanup"
+
+
+def test_prepare_upload_path_toml_without_url_uses_temp_file(tmp_path):
+    toml_file = tmp_path / "events.toml"
+    data = {"items": [_item()]}  # no meta.url -- nothing to re-upload the JSON to
+    path, temp_dir = upload_json.prepare_upload_path(toml_file, data, None, False)
+    assert temp_dir is not None
+    assert path.exists()
+    assert path != toml_file.with_suffix(".json")
+    assert not toml_file.with_suffix(".json").exists(), (
+        "no persistent companion should be left behind when there's no meta.url to upload it to"
+    )
     temp_dir.cleanup()
     assert not path.exists(), "temp file should be gone after cleanup"
 
@@ -209,6 +223,24 @@ def test_main_toml_input_respects_json_out_override(tmp_path, monkeypatch):
 
     assert custom_out.exists()
     assert not toml_file.with_suffix(".json").exists()
+
+
+def test_main_toml_input_without_url_leaves_no_file_behind(tmp_path, monkeypatch, capsys):
+    toml_file = tmp_path / "events.toml"
+    toml_file.write_text(
+        '[[items]]\ntarget = "2026-01-01T00:00:00Z"\ndisplay_seconds = 5\n\n[[items.formats]]\ntype = "dhms"\n'
+    )
+
+    monkeypatch.setattr(upload_json, "run_mpremote", lambda args, desc: None)
+    monkeypatch.setattr(sys, "argv", ["upload_json.py", str(toml_file), "--port", "/dev/fake", "--no-reset"])
+
+    upload_json.main()
+
+    out = capsys.readouterr().out
+    assert not toml_file.with_suffix(".json").exists(), (
+        "no persistent companion should be left behind when there's no meta.url to upload it to"
+    )
+    assert "Wrote converted JSON" not in out, "no reminder to keep/upload a file that no longer exists"
 
 
 def test_main_json_input_uploads_original_file_unchanged(tmp_path, monkeypatch):

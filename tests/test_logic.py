@@ -58,11 +58,16 @@ v = countdownfmt.format_value(past, now, {"type": "dhms"})
 print("dhms past:", v)
 assert v == "-0-02:03:04", v
 
-v = countdownfmt.format_value(now + 86400 * 3.21, now, {"type": "days", "precision": 2})
+# Deltas constructed as exact integer seconds (277344 = 86400*3.21,
+# 129600 = 86400*1.5) rather than `now + 86400 * 3.21` -- that would force a
+# float multiplication added to a large int, silently making target_epoch
+# itself a float. format_value() requires an exact int target_epoch (see the
+# int() coercion there), matching how the real app always computes deltas.
+v = countdownfmt.format_value(now + 277344, now, {"type": "days", "precision": 2})
 print("days future:", v)
 assert v == "3.21", v
 
-v = countdownfmt.format_value(now - 86400 * 1.5, now, {"type": "days", "precision": 1})
+v = countdownfmt.format_value(now - 129600, now, {"type": "days", "precision": 1})
 print("days past:", v)
 assert v == "-1.5", v
 
@@ -94,6 +99,18 @@ assert (
 assert countdownfmt.update_interval_seconds({"type": "seconds", "precision": 0}) == 1.0
 assert countdownfmt.update_interval_seconds({"type": "minutes", "precision": 0}) == 60.0
 assert countdownfmt.update_interval_seconds({"type": "hours", "precision": 0}) == 3600.0
+
+# -- "years": same shape again, using the 365.25-day Julian year
+# (31557600 seconds -- an exact int, see countdownfmt._UNIT_SECONDS) --
+YEAR_SECONDS = 31557600
+future3 = now + YEAR_SECONDS * 3  # exactly 3 years
+assert countdownfmt.format_value(future3, now, {"type": "years", "precision": 0}) == "3"
+half_year = now + YEAR_SECONDS // 2  # exactly 0.5 years (31557600 is even)
+assert countdownfmt.format_value(half_year, now, {"type": "years", "precision": 1}) == "0.5"
+assert countdownfmt.update_interval_seconds({"type": "years", "precision": 0}) == float(YEAR_SECONDS)
+assert countdownfmt.update_interval_seconds({"type": "years", "precision": 9}) == countdownfmt.MIN_UPDATE_INTERVAL, (
+    "should hit the 0.1s floor at high enough precision"
+)
 assert (
     countdownfmt.update_interval_seconds({"type": "seconds", "precision": 3}) == countdownfmt.MIN_UPDATE_INTERVAL
 ), "should hit the 0.1s floor, not go faster"
@@ -127,6 +144,24 @@ assert countdownfmt.format_value(now + 3000, now, {"type": "seconds", "precision
     "exact 4-digit boundary"
 )
 print("commas OK")
+
+# -- regression: "seconds" must not freeze for large deltas --
+# Root cause: this device's floats are 32-bit, only exactly representing
+# integers up to 2**24 (~16.7 million). A ~1963-birthdate "seconds" delta is
+# ~2 billion, so the old `delta_seconds / unit_seconds` float division
+# rounded to the nearest ~100 -- the displayed value appeared frozen for over
+# a minute at a time. Confirm consecutive whole seconds each produce a
+# distinct, correctly-incrementing value.
+huge_now = isotime.parse_iso8601("1963-08-30T00:00:00Z")
+huge_target = huge_now  # absolute_value delta grows as "now" advances
+base = 1_989_000_000  # roughly seconds since 1963, order-of-magnitude check
+v0 = countdownfmt.format_value(huge_target, huge_now - base, {"type": "seconds", "absolute_value": True})
+v1 = countdownfmt.format_value(huge_target, huge_now - base - 1, {"type": "seconds", "absolute_value": True})
+v2 = countdownfmt.format_value(huge_target, huge_now - base - 2, {"type": "seconds", "absolute_value": True})
+print("huge seconds:", v0, v1, v2)
+assert int(v1) - int(v0) == 1, (v0, v1)
+assert int(v2) - int(v1) == 1, (v1, v2)
+print("huge delta regression OK")
 
 print("countdownfmt OK")
 
@@ -168,7 +203,7 @@ assert countdown_data.validate({"items": [_item(formats=None)]}) is False, "form
 assert countdown_data.validate({"items": [_item(formats=[{"type": "not-a-real-type"}])]}) is False, (
     "unknown format type"
 )
-for known_type in ("days", "hours", "minutes", "seconds", "dhms"):
+for known_type in ("years", "days", "hours", "minutes", "seconds", "dhms"):
     assert countdown_data.validate({"items": [_item(formats=[{"type": known_type}])]}) is True, known_type
 assert countdown_data.validate({"items": [_item(display_seconds="5")]}) is False, (
     "display_seconds must be numeric, not a string"

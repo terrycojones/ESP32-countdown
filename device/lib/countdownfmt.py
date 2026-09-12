@@ -4,16 +4,24 @@
 
 MIN_UPDATE_INTERVAL = 0.1  # seconds; below this is cosmetic only, see DESIGN.md
 
-# "days"/"hours"/"minutes"/"seconds" are all the same shape: a floating-point
-# count of that unit, with `precision` decimal digits -- this is just the
-# number of seconds in one of that unit, used both to compute the value and
-# to derive its update interval. "dhms" is its own thing (a fixed D-HH:MM:SS
-# breakdown, no precision field), handled separately below.
+# "years"/"days"/"hours"/"minutes"/"seconds" are all the same shape: a
+# floating-point count of that unit, with `precision` decimal digits -- this
+# is just the number of seconds in one of that unit, used both to compute
+# the value and to derive its update interval. "dhms" is its own thing (a
+# fixed D-HH:MM:SS breakdown, no precision field), handled separately below.
+#
+# Deliberately plain ints, not floats: format_value() below does the actual
+# value/precision math in pure integer arithmetic (see there for why).
+# "years" uses the 365.25-day Julian year (the usual astronomical/calendar
+# convention for an *average* year length, accounting for leap years) --
+# 365.25 * 86400 = 31557600 exactly, so this stays an exact int like every
+# other entry here.
 _UNIT_SECONDS = {
-    "days": 86400.0,
-    "hours": 3600.0,
-    "minutes": 60.0,
-    "seconds": 1.0,
+    "years": 31557600,
+    "days": 86400,
+    "hours": 3600,
+    "minutes": 60,
+    "seconds": 1,
 }
 
 
@@ -47,8 +55,34 @@ def format_value(target_epoch, now_epoch, fmt):
 
     if ftype in _UNIT_SECONDS:
         precision = fmt.get("precision", 0)
-        value = delta_seconds / _UNIT_SECONDS[ftype]
-        formatted = f"{value:.{precision}f}"
+        unit_seconds = _UNIT_SECONDS[ftype]
+        sign = "-" if delta_seconds < 0 else ""
+        abs_delta = abs(int(delta_seconds))  # exact int, arbitrary size
+
+        # Pure integer arithmetic throughout -- never converts the
+        # (possibly huge) delta through a float. Found the hard way: this
+        # device's floats are 32-bit (see README.md "This device's floats
+        # are 32-bit, not 64-bit"), which only exactly represents integers
+        # up to 2**24 (~16.7 million) -- a real, visible bug for e.g. a
+        # "seconds"-since-1963 delta (~2 billion): the old
+        # `delta_seconds / unit_seconds` float division rounded to the
+        # nearest ~100, so the displayed count appeared frozen for well
+        # over a minute at a time between visible jumps. Scaling by
+        # 10**precision and doing the division as an exact integer
+        # division (rounding half up) sidesteps float entirely, so this is
+        # now exact regardless of how large the delta or precision get.
+        numerator = abs_delta * (10**precision)
+        scaled = (numerator + unit_seconds // 2) // unit_seconds
+
+        if precision == 0:
+            formatted = str(scaled)
+        else:
+            digits = str(scaled)
+            if len(digits) <= precision:
+                digits = "0" * (precision - len(digits) + 1) + digits
+            formatted = digits[:-precision] + "." + digits[-precision:]
+
+        formatted = sign + formatted
         return _add_commas(formatted) if fmt.get("commas") else formatted
 
     if ftype == "dhms":

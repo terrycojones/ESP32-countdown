@@ -120,14 +120,18 @@ bitmap. This means a custom rendering module, using:
 
 ## Value formats
 
-Five format types:
+Six format types:
 
-- `"days"` / `"hours"` / `"minutes"` / `"seconds"`: all the same shape --
-  a floating-point count of that unit until (positive) or since (negative)
-  the target, with `precision` decimal digits. Implemented as one family
-  in `countdownfmt.py` (a dict of unit-name -> seconds-per-unit), not four
-  separate cases -- `"days"` was the original/only one of these; the other
-  three are the identical formula with a different divisor.
+- `"years"` / `"days"` / `"hours"` / `"minutes"` / `"seconds"`: all the
+  same shape -- a floating-point count of that unit until (positive) or
+  since (negative) the target, with `precision` decimal digits.
+  Implemented as one family in `countdownfmt.py` (a dict of unit-name ->
+  seconds-per-unit), not five separate cases -- `"days"` was the
+  original/only one of these; the others are the identical formula with a
+  different divisor. `"years"` uses the 365.25-day Julian year (31557600
+  seconds -- an exact int, like every other entry in that dict), the usual
+  astronomical/calendar convention for an *average* year length that
+  accounts for leap years.
 - `"dhms"`: integer `D-HH:MM:SS` breakdown, sign-prefixed if negative. Its
   own case, not part of the unit family above (no `precision` field, fixed
   breakdown across all four units at once).
@@ -140,7 +144,8 @@ sign is just noise, e.g. a birthday: `before_text: "You are"`, `after_text:
 instead of "You are -10957.83 days old".
 
 A format entry may also set `"commas": true` (only meaningful for the
-`"days"`/`"hours"`/`"minutes"`/`"seconds"` family, not `"dhms"`), which
+`"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` family, not
+`"dhms"`), which
 inserts thousands-separator commas into the integer part of the displayed
 number, e.g. `1,234,567.90` instead of `1234567.90` -- the sign (if any)
 stays outside the grouping. Implemented as a small hand-rolled
@@ -154,10 +159,10 @@ Display update cadence (how often the value is recalculated/redrawn) is
 **derived from the format**, not separately configured:
 
 - `"dhms"` updates every 1 second (its finest unit).
-- `"days"`/`"hours"`/`"minutes"`/`"seconds"` with precision P update every
-  `10^-P` units-of-that-type converted to seconds (e.g. `days` precision=2
-  -> ~864s, `seconds` precision=0 -> 1s, `seconds` precision=3 -> hits the
-  floor below rather than 0.001s).
+- `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` with precision P
+  update every `10^-P` units-of-that-type converted to seconds (e.g.
+  `days` precision=2 -> ~864s, `seconds` precision=0 -> 1s, `seconds`
+  precision=3 -> hits the floor below rather than 0.001s).
 - Floor of 0.1s (a tenth of a second) regardless of the derived value --
   below this is just for visual smoothness, not meaningful accuracy (see
   "Clock accuracy" below).
@@ -315,15 +320,20 @@ Display update cadence (how often the value is recalculated/redrawn) is
   `3.3000002`, not CPython's usual `3.3000000000000003`). `target_epoch`/
   `now_epoch` themselves are always exact ints (from
   `isotime.parse_iso8601()`/`time.time()`), so `delta_seconds` is always
-  computed as exact integer subtraction regardless of magnitude -- the
-  float32-ness only bites during the unit-family's `delta_seconds /
-  unit_seconds` division. For a large enough delta at a high enough
-  `precision`, this can measurably shift the last displayed digit (found
-  via a ~2 billion second delta at `precision=6`: float32 gave
-  `23148.148000`, the mathematically correct value is `23148.148160`) --
-  in the same spirit as the point above, already-uncapped `precision`
-  values are cosmetic beyond what the platform can actually back up
-  either way, so this wasn't treated as something to fix.
+  computed as exact integer subtraction regardless of magnitude. The old
+  unit-family implementation then did `delta_seconds / unit_seconds` as a
+  float division, and for a large enough delta this was a real bug, not
+  just a cosmetic one: a `"seconds"`-since-1963 delta (~2 billion) only
+  has ~7 significant decimal digits of headroom in float32, so the
+  division rounded to the nearest ~100 -- the displayed value appeared
+  frozen for over a minute at a time between visible jumps (reported as
+  "the displayed number of seconds does not change"). Fixed by rewriting
+  `format_value()`'s unit-family branch to do the value/precision math in
+  pure integer arithmetic throughout (scale the exact-integer delta by
+  `10**precision`, integer-divide with rounding, then string-slice in the
+  decimal point) -- the delta is never converted through a float, so the
+  result is now exact regardless of how large the delta or `precision`
+  get. Covered by a permanent regression test in `tests/test_logic.py`.
 
 ## Data lifecycle
 

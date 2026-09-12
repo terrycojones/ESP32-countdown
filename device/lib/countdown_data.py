@@ -41,7 +41,7 @@ def validate(data):
             if not isinstance(formats, list) or len(formats) == 0:
                 return False
             for fmt in formats:
-                if fmt.get("type") not in ("days", "hours", "minutes", "seconds", "dhms"):
+                if fmt.get("type") not in ("years", "days", "hours", "minutes", "seconds", "dhms"):
                     return False
         return True
     except Exception:

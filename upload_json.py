@@ -6,15 +6,15 @@ means the device will never auto-refetch (see DESIGN.md "Data lifecycle").
 
 Accepts either JSON or TOML (by file extension) -- MicroPython has no TOML
 support, so a .toml input is converted to JSON before anything else
-happens. Since meta.url points at a server the device itself will later
-re-fetch from directly (as JSON -- it has no TOML parser either), you
-normally need that same JSON file to upload there too, so the converted
+happens. If meta.url is set, that's a server the device itself will later
+re-fetch from directly (as JSON -- it has no TOML parser either), so you
+normally need that same JSON file to upload there too -- the converted
 JSON is *written out as a real file* (next to the input, same basename,
-.json extension, unless --json-out says otherwise). Exception: if --upload
-is also given, meta.upload_command handles getting the JSON to that server
-automatically, so there's nothing left needing a persistent local copy --
-it's written to a temp file instead and cleaned up afterward, unless
---json-out is given explicitly (which always wins).
+.json extension, unless --json-out says otherwise). If meta.url isn't set,
+or --upload is also given (meta.upload_command handles getting the JSON to
+the server automatically), there's nothing left needing a persistent local
+copy -- it's written to a temp file instead and cleaned up afterward,
+unless --json-out is given explicitly (which always wins).
 
 Copying a file to the board interrupts main.py if it's running (see
 README.md "Uploading interrupts the running app"), so this resets the
@@ -63,14 +63,15 @@ def prepare_upload_path(config_path, data, json_out_arg, will_auto_upload):
     (path_to_upload, temp_dir_or_None):
 
     - If `json_out_arg` is given, always writes there -- persistent,
-      explicit intent wins regardless of `will_auto_upload`.
-    - Else if `will_auto_upload` (--upload was given, so meta.upload_command
-      handles getting the JSON to its server -- no need for a persistent
-      local copy), writes to a temp file and returns its TemporaryDirectory
-      too, so the caller can clean it up once done with it.
+      explicit intent wins regardless of anything else.
+    - Else if `data` has no meta.url (nothing to re-upload the JSON to) or
+      `will_auto_upload` (--upload was given, so meta.upload_command
+      handles getting the JSON to its server instead), a persistent local
+      copy serves no purpose -- writes to a temp file and returns its
+      TemporaryDirectory too, so the caller can clean it up once done.
     - Else writes next to `config_path` (default: same basename, .json
       extension) -- the normal persistent case, for the user to upload
-      manually.
+      manually to meta.url.
 
     For a non-.toml `config_path`, returns (config_path, None) unchanged."""
     if config_path.suffix.lower() != ".toml":
@@ -83,7 +84,8 @@ def prepare_upload_path(config_path, data, json_out_arg, will_auto_upload):
         print(f"Wrote converted JSON to {json_out} -- upload this file to wherever meta.url points, if set.")
         return json_out, None
 
-    if will_auto_upload:
+    has_url = bool(data.get("meta", {}).get("url"))
+    if will_auto_upload or not has_url:
         temp_dir = tempfile.TemporaryDirectory()
         json_out = Path(temp_dir.name) / (config_path.stem + ".json")
         with open(json_out, "w") as f:
