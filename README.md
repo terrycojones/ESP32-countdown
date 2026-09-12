@@ -272,37 +272,40 @@ each occurrence appends another entry to that list. See
 
 Top level:
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `meta.url` | string | no | Where to fetch the *next* update from (may embed HTTP Basic Auth: `https://user:pass@host/path`). Omit the key entirely (or, in JSON, set it to `null`) for static mode — never auto-refetches. |
-| `meta.refetch_after_seconds` | number | no | How often (while `meta.url` is set) to reconnect to Wi-Fi, re-sync the clock, and refetch. |
-| `meta.upload_command` | string | no | Host-side-only, not read by the device: a shell command template (`{path}` → local JSON path) that `upload_json.py --upload` runs to push the JSON to `meta.url`'s server. See "Uploading your countdown data". |
-| `defaults.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) or `"N%"` string | no, default 0 | Fallback outer margins of the usable content area, for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full width (`margin_left`/`margin_right`) or height (`margin_top`/`margin_bottom`) — see "Percentage layout values" below. |
-| `defaults.gap_before_value` / `gap_after_value` | number (px) or `"N%"` string | no, default 0 | Fallback vertical gap around the value box (applied only when the adjacent text is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full height — see "Percentage layout values" below. |
-| `defaults.top_text_height` / `bottom_text_height` | number (px) or `"N%"` string | no, default 24 | Fallback height of the top/bottom text box (applied only when `top_text`/`bottom_text` is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full height — see "Percentage layout values" below. |
-| `defaults.background` / `top_text_color` / `value_color` / `bottom_text_color` | `"#RRGGBB"` string | no | Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below. |
-| `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any item/format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
-| `defaults.led_colors` / `led_cycle_seconds` | array of `"#RRGGBB"` / number | no | Fallback LED light-show colors/cycle time for any item/format that doesn't specify its own — see below. |
-| `items` | array | **yes**, ≥1 | The countdown events to cycle through. |
+<table>
+<tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+<tr><td><code>meta.url</code></td><td>string</td><td>no</td><td>Where to fetch the <em>next</em> update from (may embed HTTP Basic Auth: <code>https://user:pass@host/path</code>). Omit the key entirely (or, in JSON, set it to <code>null</code>) for static mode — never auto-refetches.</td></tr>
+<tr><td><code>meta.refetch_after_seconds</code></td><td>number</td><td>no</td><td>How often (while <code>meta.url</code> is set) to reconnect to Wi-Fi, re-sync the clock, and refetch.</td></tr>
+<tr><td><code>meta.upload_command</code></td><td>string</td><td>no</td><td>Host-side-only, not read by the device: a shell command template (<code>{path}</code> → local JSON path) that <code>upload_json.py --upload</code> runs to push the JSON to <code>meta.url</code>'s server. See "Uploading your countdown data".</td></tr>
+<tr><td><code>defaults.margin_top</code> / <code>margin_bottom</code> / <code>margin_left</code> / <code>margin_right</code></td><td>number (px) or <code>"N%"</code> string</td><td>no, default 0</td><td>Fallback outer margins of the usable content area, for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full width (<code>margin_left</code>/<code>margin_right</code>) or height (<code>margin_top</code>/<code>margin_bottom</code>) — see "Percentage layout values" below.</td></tr>
+<tr><td><code>defaults.gap_before_value</code> / <code>gap_after_value</code></td><td>number (px) or <code>"N%"</code> string</td><td>no, default 0</td><td>Fallback vertical gap around the value box (applied only when the adjacent text is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full height — see "Percentage layout values" below.</td></tr>
+<tr><td><code>defaults.top_text_height</code> / <code>bottom_text_height</code></td><td>number (px) or <code>"N%"</code> string</td><td>no, default 24</td><td>Fallback height of the top/bottom text box (applied only when <code>top_text</code>/<code>bottom_text</code> is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full height — see "Percentage layout values" below.</td></tr>
+<tr><td><code>defaults.background</code> / <code>top_text_color</code> / <code>value_color</code> / <code>bottom_text_color</code></td><td><code>"#RRGGBB"</code> string</td><td>no</td><td>Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below.</td></tr>
+<tr><td><code>defaults.brightness</code></td><td>number, <code>0.0</code>-<code>1.0</code></td><td>no</td><td>Fallback backlight brightness for any item/format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too.</td></tr>
+<tr><td><code>defaults.led_colors</code> / <code>led_cycle_seconds</code></td><td>array of <code>"#RRGGBB"</code> / number</td><td>no</td><td>Fallback LED light-show colors/cycle time for any item/format that doesn't specify its own — see below.</td></tr>
+<tr><td><code>items</code></td><td>array</td><td><strong>yes</strong>, ≥1</td><td>The countdown events to cycle through.</td></tr>
+</table>
 
 Each entry in `items`:
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `target` | ISO-8601 string | **yes** | Event date/time with a UTC offset (`Z`, or `+HH:MM`/`-HH:MM`) — e.g. `"2026-12-25T00:00:00Z"`. |
-| `display_seconds` | number | **yes** | How long this item stays on screen before rotating to the next item. |
-| `formats` | array | **yes**, ≥1 | Different ways to display this item's countdown; BOOT cycles through these (see below). |
-| *any format-level field* | — | no | An item may also set any of the fields listed in the `formats` table below (`type`, `precision`, colors, `brightness`, `led_colors`, `skip`, …) directly on itself — shared across all of that item's formats unless a specific format overrides it. See "Setting resolution" below. |
+<table>
+<tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+<tr><td><code>target</code></td><td>ISO-8601 string</td><td><strong>yes</strong></td><td>Event date/time with a UTC offset (<code>Z</code>, or <code>+HH:MM</code>/<code>-HH:MM</code>) — e.g. <code>"2026-12-25T00:00:00Z"</code>.</td></tr>
+<tr><td><code>display_seconds</code></td><td>number</td><td><strong>yes</strong></td><td>How long this item stays on screen before rotating to the next item.</td></tr>
+<tr><td><code>formats</code></td><td>array</td><td><strong>yes</strong>, ≥1</td><td>Different ways to display this item's countdown; BOOT cycles through these (see below).</td></tr>
+<tr><td><em>any format-level field</em></td><td>—</td><td>no</td><td>An item may also set any of the fields listed in the <code>formats</code> table below (<code>type</code>, <code>precision</code>, colors, <code>brightness</code>, <code>led_colors</code>, <code>skip</code>, …) directly on itself — shared across all of that item's formats unless a specific format overrides it. See "Setting resolution" below.</td></tr>
+</table>
 
 **Setting a timezone on `target`:** add a standard ISO-8601 offset
 right after the time — `±HH:MM`, or `Z` for UTC:
 
-| Meaning | `target` |
-|---|---|
-| UTC | `"2026-12-25T00:00:00Z"` |
-| UTC+1 (e.g. Central European Time, winter) | `"2026-12-25T00:00:00+01:00"` |
-| UTC-5 (e.g. US Eastern, standard time) | `"2026-12-25T00:00:00-05:00"` |
-| UTC+5:30 (e.g. India) | `"2026-12-25T00:00:00+05:30"` |
+<table>
+<tr><th>Meaning</th><th><code>target</code></th></tr>
+<tr><td>UTC</td><td><code>"2026-12-25T00:00:00Z"</code></td></tr>
+<tr><td>UTC+1 (e.g. Central European Time, winter)</td><td><code>"2026-12-25T00:00:00+01:00"</code></td></tr>
+<tr><td>UTC-5 (e.g. US Eastern, standard time)</td><td><code>"2026-12-25T00:00:00-05:00"</code></td></tr>
+<tr><td>UTC+5:30 (e.g. India)</td><td><code>"2026-12-25T00:00:00+05:30"</code></td></tr>
+</table>
 
 The parser (`device/lib/isotime.py`) only reads a **fixed numeric
 offset** — there's no timezone name lookup or daylight-saving
@@ -313,21 +316,23 @@ automatically, you have to pick the right one when writing the JSON.
 
 Each entry in a `formats` list:
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | `"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"`, or `"dhms"` | **yes** | The first five: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit (`"years"` uses the 365.25-day Julian year, the usual astronomical/calendar average that accounts for leap years). `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
-| `precision` | integer | only for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` | Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) `"dhms"`. |
-| `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (any `type`) — for an always-in-the-past target where the sign is just noise, e.g. `top_text: "You are"`, `bottom_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
-| `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
-| `top_text` / `bottom_text` | string | no | Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/`defaults`; setting it to `""` explicitly is a real, final value that opts back out of an inherited one. |
-| `background` / `top_text_color` / `value_color` / `bottom_text_color` | `"#RRGGBB"` string | no | Overrides the item's/`defaults`' color for this specific format. |
-| `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) or `"N%"` string | no | Overrides the item's/`defaults`' outer margin for this specific format. |
-| `gap_before_value` / `gap_after_value` | number (px) or `"N%"` string | no | Overrides the item's/`defaults`' vertical gap around the value box for this specific format. |
-| `top_text_height` / `bottom_text_height` | number (px) or `"N%"` string | no, default 24 | Overrides the item's/`defaults`' height for the top/bottom text box (only relevant when `top_text`/`bottom_text` is non-empty) for this specific format — the value box always gets whatever vertical space is left over. |
-| `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides the item's/`defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). |
-| `led_colors` | array of `"#RRGGBB"` strings | no | Overrides the item's/`defaults.led_colors`. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No `led_colors` anywhere in the chain → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down. |
-| `led_cycle_seconds` | number | no, default `4.0` | Time for one full loop through `led_colors` (only meaningful with 2+ colors) — overrides the item's/`defaults.led_cycle_seconds`. |
-| `skip` | boolean | no, default `false` | If `true`, drops this format entirely — it's removed before rotation/display ever sees it, as if it weren't in the config at all. Set on an item instead, it makes *every* format inherit `skip: true` by default, which in the ordinary case drops the whole item (it ends up with zero formats) — a specific format can still set `skip: false` to opt itself back in. See "Skipping items/formats" below. |
+<table>
+<tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+<tr><td><code>type</code></td><td><code>"years"</code>, <code>"days"</code>, <code>"hours"</code>, <code>"minutes"</code>, <code>"seconds"</code>, or <code>"dhms"</code></td><td><strong>yes</strong></td><td>The first five: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit (<code>"years"</code> uses the 365.25-day Julian year, the usual astronomical/calendar average that accounts for leap years). <code>"dhms"</code>: integer <code>D-HH:MM:SS</code> breakdown. Past events show a leading <code>-</code> either way.</td></tr>
+<tr><td><code>precision</code></td><td>integer</td><td>only for <code>"years"</code>/<code>"days"</code>/<code>"hours"</code>/<code>"minutes"</code>/<code>"seconds"</code></td><td>Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) <code>"dhms"</code>.</td></tr>
+<tr><td><code>absolute_value</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, the value is run through <code>abs()</code> before formatting (any <code>type</code>) — for an always-in-the-past target where the sign is just noise, e.g. <code>top_text: "You are"</code>, <code>bottom_text: "days old"</code>, <code>absolute_value: true</code> → "You are 10957.83 days old" instead of "You are -10957.83 days old".</td></tr>
+<tr><td><code>commas</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, inserts thousands-separator commas into the number, e.g. <code>1,234,567.90</code> instead of <code>1234567.90</code> (sign stays outside the grouping). Only meaningful for <code>"years"</code>/<code>"days"</code>/<code>"hours"</code>/<code>"minutes"</code>/<code>"seconds"</code>, not <code>"dhms"</code>.</td></tr>
+<tr><td><code>top_text</code> / <code>bottom_text</code></td><td>string</td><td>no</td><td>Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/<code>defaults</code>; setting it to <code>""</code> explicitly is a real, final value that opts back out of an inherited one.</td></tr>
+<tr><td><code>background</code> / <code>top_text_color</code> / <code>value_color</code> / <code>bottom_text_color</code></td><td><code>"#RRGGBB"</code> string</td><td>no</td><td>Overrides the item's/<code>defaults</code>' color for this specific format.</td></tr>
+<tr><td><code>margin_top</code> / <code>margin_bottom</code> / <code>margin_left</code> / <code>margin_right</code></td><td>number (px) or <code>"N%"</code> string</td><td>no</td><td>Overrides the item's/<code>defaults</code>' outer margin for this specific format.</td></tr>
+<tr><td><code>gap_before_value</code> / <code>gap_after_value</code></td><td>number (px) or <code>"N%"</code> string</td><td>no</td><td>Overrides the item's/<code>defaults</code>' vertical gap around the value box for this specific format.</td></tr>
+<tr><td><code>top_text_height</code> / <code>bottom_text_height</code></td><td>number (px) or <code>"N%"</code> string</td><td>no, default 24</td><td>Overrides the item's/<code>defaults</code>' height for the top/bottom text box (only relevant when <code>top_text</code>/<code>bottom_text</code> is non-empty) for this specific format — the value box always gets whatever vertical space is left over.</td></tr>
+<tr><td><code>brightness</code></td><td>number, <code>0.0</code>-<code>1.0</code></td><td>no</td><td>Backlight brightness while this format is shown — overrides the item's/<code>defaults.brightness</code>. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch).</td></tr>
+<tr><td><code>led_colors</code></td><td>array of <code>"#RRGGBB"</code> strings</td><td>no</td><td>Overrides the item's/<code>defaults.led_colors</code>. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No <code>led_colors</code> anywhere in the chain → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down.</td></tr>
+<tr><td><code>led_cycle_seconds</code></td><td>number</td><td>no, default <code>4.0</code></td><td>Time for one full loop through <code>led_colors</code> (only meaningful with 2+ colors) — overrides the item's/<code>defaults.led_cycle_seconds</code>.</td></tr>
+<tr><td><code>proportional_font</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, narrow characters (<code>,</code>, <code>.</code>, <code>:</code>) are drawn with a tighter blank margin instead of the full monospace cell width — see "How the text is drawn" below.</td></tr>
+<tr><td><code>skip</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, drops this format entirely — it's removed before rotation/display ever sees it, as if it weren't in the config at all. Set on an item instead, it makes <em>every</em> format inherit <code>skip: true</code> by default, which in the ordinary case drops the whole item (it ends up with zero formats) — a specific format can still set <code>skip: false</code> to opt itself back in. See "Skipping items/formats" below.</td></tr>
+</table>
 
 **Setting resolution:** every field in the table above resolves through
 the same three-tier chain: the format entry itself, then its parent item,
@@ -621,6 +626,20 @@ it's fast (single-digit milliseconds even for a full frame's worth of
 text) and only the final composed image gets sent to the screen in one
 blit. See the note below on why that blit needs a small fix-up of its
 own.
+
+By default every character advances by a fixed 8-pixel cell
+(monospace), even narrow ones like `,`/`.`/`:`, which leaves them
+looking like they have a wide gap on either side. Setting the
+`proportional_font` format option (see "Config format reference"
+above) trims each character's blank margin down to whatever an
+ordinary digit (`0`-`9`) already has on its widest side — found by
+rendering each glyph alone and scanning for lit columns, cached per
+character — rather than trimming it to zero, so the gap either side of
+a squeezed character stays the same as an ordinary digit-to-digit gap
+instead of jamming it against its neighbors. Digits themselves are
+untouched, since none of them have more blank margin than this
+reference. A space has no ink for that scan to find, so it's handled
+separately: cut by ~20%.
 
 ### `framebuf` colors need pre-swapping
 
