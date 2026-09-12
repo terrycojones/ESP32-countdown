@@ -84,9 +84,9 @@ Notes:
   `proportional_font`, and the eight margin/gap/text-height fields) may
   *also* be set directly on the parent `item` -- see "Setting resolution"
   below. This is for formats that mostly share the same look/text and
-  differ only in, say, `type`/`precision`: put the shared settings on the
+  differ only in, say, `type`, `precision`: put the shared settings on the
   item once instead of repeating them on every one of its formats.
-- `top_text`/`bottom_text` may be empty/omitted -- the vertical space
+- `top_text`, `bottom_text` may be empty/omitted -- the vertical space
   that text would have used is instead given entirely to the countdown
   value's box (not split/redistributed elsewhere). An empty string is a
   real, final value (see "Setting resolution"): a format can set
@@ -103,7 +103,7 @@ Notes:
 Every format-level setting resolves through the same three-tier chain:
 **format entry -> parent item -> `defaults`** -- the first of those three
 that actually *sets* the key wins, else a hardcoded Python-level default
-(e.g. `display.DEFAULT_BRIGHTNESS`, or `""` for `top_text`/`bottom_text`).
+(e.g. `display.DEFAULT_BRIGHTNESS`, or `""` for `top_text`, `bottom_text`).
 One shared helper, `settings.resolve(key, fmt, item, defaults, fallback)`,
 implements this and is used everywhere a setting is looked up
 (`countdownfmt.py`, `display.resolve_brightness()`,
@@ -112,7 +112,7 @@ implements this and is used everywhere a setting is looked up
 
 Resolution is checked by **presence** (`key in source`), not truthiness:
 an explicit falsy value at whichever tier sets it first -- `0.0` brightness,
-an empty `led_colors` list, an empty `top_text`/`bottom_text` string --
+an empty `led_colors` list, an empty `top_text`, `bottom_text` string --
 is a real, final answer and does **not** fall through to a later tier. This
 generalizes a rule the codebase already had for `brightness` (`0.0` is
 "fully off", not "unset") to every setting: it means, for example, that an
@@ -123,7 +123,7 @@ entirely, rather than inheriting the item's list.
 The item level exists so formats that mostly share the same look/text
 don't have to repeat every color/brightness/text setting on each one --
 put the shared settings on the item once, and only the settings that
-actually differ (typically `type`/`precision`) on the individual formats.
+actually differ (typically `type`, `precision`) on the individual formats.
 `type`, `precision`, `absolute_value`, and `commas` can technically be set
 at the item or `defaults` level too (the resolution chain doesn't
 special-case which keys are "structural" vs. "format" settings), though in
@@ -137,9 +137,9 @@ Each of these eight settings -- `margin_top`, `margin_bottom`,
 `top_text_height`, `bottom_text_height` -- may be given either as a plain
 number (pixels, as documented in the JSON schema above) or as a string
 like `"12%"` -- a percentage of the relevant axis of the full logical
-frame (`display.WIDTH`/`HEIGHT`, 320x172 landscape -- see "Display
+frame (`display.WIDTH`, `HEIGHT`, 320x172 landscape -- see "Display
 orientation" below), *not* of whatever space is left after other
-margins/heights are already subtracted. `margin_left`/`margin_right` are
+margins/heights are already subtracted. `margin_left`, `margin_right` are
 percentages of the frame width; the other six (`margin_top`,
 `margin_bottom`, `gap_before_value`, `gap_after_value`,
 `top_text_height`, `bottom_text_height`) are percentages of the frame
@@ -149,8 +149,8 @@ set at one tier and a plain pixel number at another resolve exactly like
 any other setting, since resolution only cares which tier first *has*
 the key, not what type its value is.
 
-`top_text_height`/`bottom_text_height` control how much vertical space
-the top/bottom text boxes get when their text (`top_text`/`bottom_text`)
+`top_text_height`, `bottom_text_height` control how much vertical space
+the top/bottom text boxes get when their text (`top_text`, `bottom_text`)
 is non-empty -- unset, each defaults to `render.DEFAULT_TEXT_HEIGHT`
 (24px). The countdown value's box always gets whatever's left over after
 margins, gaps, and the top/bottom text heights are subtracted (clamped
@@ -271,7 +271,7 @@ it.
 
 Six format types:
 
-- `"years"` / `"days"` / `"hours"` / `"minutes"` / `"seconds"`: all the
+- `"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"`: all the
   same shape -- a floating-point count of that unit until (positive) or
   since (negative) the target, with `precision` decimal digits.
   Implemented as one family in `countdownfmt.py` (a dict of unit-name ->
@@ -293,7 +293,7 @@ sign is just noise, e.g. a birthday: `top_text: "You are"`, `bottom_text:
 instead of "You are -10957.83 days old".
 
 A format entry may also set `"commas": true` (only meaningful for the
-`"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` family, not
+`"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"` family, not
 `"dhms"`), which
 inserts thousands-separator commas into the integer part of the displayed
 number, e.g. `1,234,567.90` instead of `1234567.90` -- the sign (if any)
@@ -308,7 +308,7 @@ Display update cadence (how often the value is recalculated/redrawn) is
 **derived from the format**, not separately configured:
 
 - `"dhms"` updates every 1 second (its finest unit).
-- `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` with precision P
+- `"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"` with precision P
   update every `10^-P` units-of-that-type converted to seconds (e.g.
   `days` precision=2 -> ~864s, `seconds` precision=0 -> 1s, `seconds`
   precision=3 -> hits the floor below rather than 0.001s).
@@ -387,7 +387,7 @@ Display update cadence (how often the value is recalculated/redrawn) is
   empirically (set it red, `mpremote ... reset`, still red). `main.py`
   now explicitly turns it off during startup so every boot begins from
   a known state. This matters specifically for config uploads
-  (`upload_json.py`/`upload_wifi.py`/the `install-*` Makefile targets),
+  (`upload_json.py`, `upload_wifi.py`, the `install-*` Makefile targets),
   which always go through an `mpremote cp` + reset cycle (see
   "Uploading interrupts the running app") -- without the explicit
   startup off, a light show left running before an upload would still
@@ -396,7 +396,7 @@ Display update cadence (how often the value is recalculated/redrawn) is
   software on every fresh run.
 - Deliberately **not** reset by a periodic remote refetch (`meta.url`,
   no reboot involved) that changes the data, even though that also
-  resets `item_index`/`format_indices` to 0 -- an ongoing light show is
+  resets `item_index`, `format_indices` to 0 -- an ongoing light show is
   meant to survive routine background data refreshes undisturbed;
   only a full reboot (as caused by a local config push) clears it. No
   extra code is needed for a refetch to visually reflect new data
@@ -465,9 +465,9 @@ Display update cadence (how often the value is recalculated/redrawn) is
   to "just look cool" at high precision rather than be meaningfully exact.
 - Separately from clock accuracy: this MicroPython build uses **32-bit**
   floats, not 64-bit doubles (confirmed empirically -- `1.1 + 2.2` gives
-  `3.3000002`, not CPython's usual `3.3000000000000003`). `target_epoch`/
+  `3.3000002`, not CPython's usual `3.3000000000000003`). `target_epoch`,
   `now_epoch` themselves are always exact ints (from
-  `isotime.parse_iso8601()`/`time.time()`), so `delta_seconds` is always
+  `isotime.parse_iso8601()`, `time.time()`), so `delta_seconds` is always
   computed as exact integer subtraction regardless of magnitude. The old
   unit-family implementation then did `delta_seconds / unit_seconds` as a
   float division, and for a large enough delta this was a real bug, not
@@ -544,7 +544,7 @@ Line counts across `device/` (1,304 total):
 | `text.py` | 44 | No |
 | `colors.py` | 23 | No |
 
-The entire board-specific surface is: ~15-20 individual *values* in `display.py` (6 GPIO pin numbers, panel width/height, the `xstart`/`ystart` GRAM offset, SPI baudrate/mode, the MADCTL rotation value, color order, inversion flag -- all found empirically, see "Display bring-up findings" in README.md) plus exactly one constant elsewhere (`BOOT_PIN = 9` in `main.py`). Everything else -- the JSON schema/validation, Wi-Fi connect/NTP/refetch scheduling, date parsing, format-to-string logic, the rendering *algorithm* (layout boxes, scaled-font drawing), and the app's whole state machine in `main.py` -- has zero display/pin dependency and needs no changes for different hardware.
+The entire board-specific surface is: ~15-20 individual *values* in `display.py` (6 GPIO pin numbers, panel width/height, the `xstart`, `ystart` GRAM offset, SPI baudrate/mode, the MADCTL rotation value, color order, inversion flag -- all found empirically, see "Display bring-up findings" in README.md) plus exactly one constant elsewhere (`BOOT_PIN = 9` in `main.py`). Everything else -- the JSON schema/validation, Wi-Fi connect/NTP/refetch scheduling, date parsing, format-to-string logic, the rendering *algorithm* (layout boxes, scaled-font drawing), and the app's whole state machine in `main.py` -- has zero display/pin dependency and needs no changes for different hardware.
 
 What this means for porting to a different board, by tier:
 

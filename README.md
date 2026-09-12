@@ -342,17 +342,17 @@ not truthiness, so an explicit falsy value (`brightness: 0.0`,
 `led_colors: []`, `top_text: ""`) at whichever tier sets it first is a
 real, final answer — it does not fall through to a later tier. Practical
 use: put shared colors/text/brightness on an item once, and only the
-setting that actually varies (typically `type`/`precision`) on each of its
+setting that actually varies (typically `type`, `precision`) on each of its
 individual formats; a format can still override any inherited setting, or
 explicitly opt back out with a falsy value of its own. See DESIGN.md
 "Setting resolution" for the full rationale.
 
 **Percentage layout values:** each of these eight fields —
-`margin_top`/`margin_bottom`/`margin_left`/`margin_right`/
-`gap_before_value`/`gap_after_value`/`top_text_height`/
+`margin_top`, `margin_bottom`, `margin_left`, `margin_right`,
+`gap_before_value`, `gap_after_value`, `top_text_height`,
 `bottom_text_height` — accepts either a plain number (pixels) or a
 string like `"12%"`, resolved against the full 320x172 landscape frame —
-`margin_left`/`margin_right` as a percentage of width, the other six as
+`margin_left`, `margin_right` as a percentage of width, the other six as
 a percentage of height — always the *full* frame, not whatever space is
 left after other margins/heights are subtracted. Rounded to the nearest
 pixel. Mixing styles across tiers is fine (e.g. `defaults` sets
@@ -389,8 +389,8 @@ never block the upload, no matter how large the total — see DESIGN.md
 Notes:
 
 - **Update cadence isn't configured directly** — it's derived from the
-  format: `"dhms"` recalculates every second; `"years"`/`"days"`/
-  `"hours"`/`"minutes"`/`"seconds"` recalculate every `10^-precision` of
+  format: `"dhms"` recalculates every second; `"years"`, `"days"`,
+  `"hours"`, `"minutes"`, `"seconds"` recalculate every `10^-precision` of
   that unit converted to seconds (e.g. `days` at `precision: 2` → ~14
   minutes; `seconds` at `precision: 0` → every 1s), with a 0.1-second
   floor.
@@ -401,7 +401,7 @@ Notes:
   A comes around, while item B is unaffected. A **long** press
   (roughly 800ms+) instead toggles the LED light show on/off,
   reflecting whichever item/format is currently active
-  (`led_colors`/`led_cycle_seconds` above) — see "Onboard RGB LED needs
+  (`led_colors`, `led_cycle_seconds` above) — see "Onboard RGB LED needs
   R/G swapped" further down for what the LED itself is.
 - Orientation is fixed landscape (device mounted on its side, USB-C
   connector on the left) — there's no on-device way to change this at
@@ -453,7 +453,7 @@ Two different kinds, run two different ways:
 - **`tests/test_logic.py`** — real assertions (`assert`, not just
   prints) for the pure-logic MicroPython modules: `colors.py`,
   `isotime.py`, `countdownfmt.py`, `countdown_data.py`'s
-  `validate()`/`split_auth()`. Runs *on the device* (`make
+  `validate()`, `split_auth()`. Runs *on the device* (`make
   test-logic`), since these modules use MicroPython's stdlib subset,
   not CPython's — it is **not** a pytest test, and `pyproject.toml`'s
   `[tool.pytest.ini_options]` explicitly excludes it from pytest
@@ -462,7 +462,7 @@ Two different kinds, run two different ways:
   **`test_upload_wifi.py`** — a normal pytest suite for the host-side
   scripts' validation logic (`port_config.read_port()`,
   `upload_json.validate_countdown_json()`,
-  `upload_wifi.validate_networks()`/`load_networks()`). Pure Python,
+  `upload_wifi.validate_networks()`, `load_networks()`). Pure Python,
   no device or `PORT` needed: `make test-host` (or `uv run pytest
   tests/` directly).
 
@@ -484,10 +484,10 @@ Read-only / safe:
   (manufacturer/size)
 - `make repl-check` — connect to the MicroPython REPL and print
   version info
-- `make reset` — soft-reset the board, re-running `boot.py`/`main.py`
+- `make reset` — soft-reset the board, re-running `boot.py`, `main.py`
   from scratch
-- `make test-display` / `test-module` / `test-text` / `test-landscape`
-  / `test-render` — manual bring-up/verification scripts, no automated
+- `make test-display`, `test-module`, `test-text`, `test-landscape`,
+  `test-render` — manual bring-up/verification scripts, no automated
   pass/fail (see "Where are the tests?" above)
 - `make test-logic` — real automated assertions, run on-device (see
   "Where are the tests?" above)
@@ -612,10 +612,10 @@ tiny font up ourselves — `device/lib/text.py`:
    since it's no longer restricted to whole numbers — so a short value
    like `"3.21"` renders large while a longer one like `"3-05:42:11"`
    automatically comes out smaller, using the exact same source glyphs
-   and code path either way. This is what lets `top_text`/value/
+   and code path either way. This is what lets `top_text`, value,
    `bottom_text` each size themselves to fill whatever box `render.py`'s
    layout gives them (see "JSON format reference" above) — including
-   using the full width of a wide `top_text_height`/`bottom_text_height`
+   using the full width of a wide `top_text_height`, `bottom_text_height`
    box even when the string's length means the old integer-only scaling
    would have been stuck one size too small.
 
@@ -628,7 +628,7 @@ blit. See the note below on why that blit needs a small fix-up of its
 own.
 
 By default every character advances by a fixed 8-pixel cell
-(monospace), even narrow ones like `,`/`.`/`:`, which leaves them
+(monospace), even narrow ones like `,`, `.`, `:`, which leaves them
 looking like they have a wide gap on either side. Setting the
 `proportional_font` format option (see "Config format reference"
 above) trims each character's blank margin down to whatever an
@@ -646,7 +646,7 @@ separately: cut by ~20%.
 MicroPython's `framebuf.FrameBuffer` (used for text/scaled-font
 rendering, since `st7789py` has no font support) stores RGB565 pixels
 **little-endian**, but the ST7789 — and `st7789py`'s own
-`fill`/`pixel`/etc. methods — expect **big-endian**. Sending a raw
+`fill`, `pixel`, etc. methods — expect **big-endian**. Sending a raw
 `framebuf` buffer to the display via `blit_buffer` therefore has every
 pixel's two bytes swapped on arrival. This is easy to miss: pure
 white/black survive unchanged (their bytes are symmetric), which is
@@ -714,7 +714,7 @@ Copying a file to the board (`mpremote cp`, which `upload_json.py`,
 enter MicroPython's "raw REPL" mode to do the transfer over
 serial. Entering that mode interrupts whatever's currently running and
 clears its state — but, unlike an actual reset, it does *not*
-automatically re-run `boot.py`/`main.py` afterward. Confirmed
+automatically re-run `boot.py`, `main.py` afterward. Confirmed
 empirically: after a `cp` while `main.py` was actively looping, its
 runtime variables (`item_index` and friends) were gone even several
 seconds later, and the display just stayed on whatever it last
@@ -723,7 +723,7 @@ on its own.
 
 So: any time a file gets copied to a device that's running the
 countdown app, that app stops and the display freezes until something
-actually resets the board. `upload_json.py`/`upload_wifi.py` do this
+actually resets the board. `upload_json.py`, `upload_wifi.py` do this
 automatically afterward (`make reset`'s underlying `mpremote
 ... reset`), unless passed `--no-reset` — useful if you're uploading
 several files back-to-back and only want one reset at the end. The
@@ -792,9 +792,9 @@ While building the LED light show, confirmed `time.time()` on this device only h
 
 ### The LED outlives a software reset
 
-Confirmed empirically: set the LED to a bright color, `mpremote ... reset` the board, and it was still showing that color afterward — the LED is a separate chip from the MCU, so resetting the MCU doesn't clear it. `main.py` now explicitly turns the LED off during startup so every boot begins from a known state, which matters because config uploads (`upload_json.py`/`upload_wifi.py`/the `install-*` Makefile targets) always go through an interrupt-and-reset cycle (see "Uploading interrupts the running app") — without this, a light show left running before an upload would keep glowing its last color on the freshly-booted app, even though `light_show_active` itself already reinitializes to `False` in software on every run.
+Confirmed empirically: set the LED to a bright color, `mpremote ... reset` the board, and it was still showing that color afterward — the LED is a separate chip from the MCU, so resetting the MCU doesn't clear it. `main.py` now explicitly turns the LED off during startup so every boot begins from a known state, which matters because config uploads (`upload_json.py`, `upload_wifi.py`, the `install-*` Makefile targets) always go through an interrupt-and-reset cycle (see "Uploading interrupts the running app") — without this, a light show left running before an upload would keep glowing its last color on the freshly-booted app, even though `light_show_active` itself already reinitializes to `False` in software on every run.
 
-This is deliberately **local-reboot-only**: a periodic remote refetch (`meta.url`) that changes the data does *not* reset `light_show_active`, even though it does reset `item_index`/`format_indices` to 0 — an ongoing light show is meant to survive routine background data refreshes, not just a config push from your own machine. It still catches up to new data within one LED tick (~50ms) regardless, since `led_colors` is resolved fresh from whichever item/format is currently active every tick, never cached from when the light show was turned on.
+This is deliberately **local-reboot-only**: a periodic remote refetch (`meta.url`) that changes the data does *not* reset `light_show_active`, even though it does reset `item_index`, `format_indices` to 0 — an ongoing light show is meant to survive routine background data refreshes, not just a config push from your own machine. It still catches up to new data within one LED tick (~50ms) regardless, since `led_colors` is resolved fresh from whichever item/format is currently active every tick, never cached from when the light show was turned on.
 
 ### Flash usage
 
@@ -813,7 +813,7 @@ filesystem where this project's files live. Measured via
 
 So: roughly 100KB used out of 8MB total flash (~1.2%) — plenty of
 headroom. Reproduce this yourself with `mpremote connect <port> exec
-"import os; print(os.statvfs('/'))"` plus `os.listdir()`/`os.stat()`
+"import os; print(os.statvfs('/'))"` plus `os.listdir()`, `os.stat()`
 to break it down by file.
 
 ## Status
@@ -846,15 +846,15 @@ to break it down by file.
       confirmed working end-to-end (fixed color, multi-color loop, and
       the long-press toggle)
 - [x] Full countdown app design written up (see `DESIGN.md`)
-- [x] `"hours"`/`"minutes"`/`"seconds"`/`"years"` format types added
+- [x] `"hours"`, `"minutes"`, `"seconds"`, `"years"` format types added
       alongside `"days"` (same unit-family implementation in
       `countdownfmt.py`), confirmed working end-to-end on real hardware
 - [x] `commas` format option (hand-rolled thousands separators — this
       device's f-strings silently ignore the standard `,` flag),
       confirmed working end-to-end on real hardware
 - [x] Item-level setting tier added: any format-level setting (colors,
-      `brightness`, `led_colors`/`led_cycle_seconds`, `top_text`/
-      `bottom_text`, `type`/`precision`/`absolute_value`/`commas`) can now
+      `brightness`, `led_colors`, `led_cycle_seconds`, `top_text`,
+      `bottom_text`, `type`, `precision`, `absolute_value`, `commas`) can now
       also be set on the parent item, shared across all its formats
       (fmt -> item -> defaults resolution, `device/lib/settings.py`),
       confirmed working end-to-end on real hardware
