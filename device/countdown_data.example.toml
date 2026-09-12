@@ -12,15 +12,13 @@ refetch_after_seconds = 3600
 # url = "https://your-config-path.json"
 # upload_command = "Your command to upload the JSON to your server."
 
-[layout]
+[defaults]
 margin_top = 4
 margin_bottom = 4
 margin_left = 4
 margin_right = 4
 gap_before_value = 4
-gap_value_after = 4
-
-[defaults]
+gap_after_value = 4
 background = "#000000"
 before_color = "#ffffff"
 value_color = "#ffffff"

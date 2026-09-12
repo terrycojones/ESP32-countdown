@@ -151,7 +151,7 @@ in the Makefile pointing at it:
 make erase-flash        # wipes the chip -- irreversible, see the Makefile's DANGER ZONE comment
 make flash-micropython  # writes the MicroPython image
 make repl-check         # confirms it booted and reports its version
-make install-lib        # copies this project's MicroPython modules onto the board
+make install-python     # copies this project's Python code (lib modules + main.py) onto the board
 ```
 
 ## Setting up Wi-Fi
@@ -233,14 +233,12 @@ interrupts the running app" below for why that's needed. Pass
 config too and only want one reset at the end. `upload_wifi.py`
 (below) behaves the same way.
 
-Finally:
-
-```
-make install-main
-```
-
-this copies the application itself onto the board. It will start
-running on the next boot (`make reset`, or unplug/replug).
+That's it -- `main.py` was already copied onto the board back in
+"Flashing MicroPython" (via `make install-python`), and both
+`install-wifi-config` and `upload_json.py` above reset the board by
+default, so it should already be running with your real Wi-Fi/data. If
+you passed `--no-reset` to either of those, run `make reset` (or
+unplug/replug) now to start it.
 
 ## Config format reference
 
@@ -279,8 +277,8 @@ Top level:
 | `meta.url` | string | no | Where to fetch the *next* update from (may embed HTTP Basic Auth: `https://user:pass@host/path`). Omit the key entirely (or, in JSON, set it to `null`) for static mode — never auto-refetches. |
 | `meta.refetch_after_seconds` | number | no | How often (while `meta.url` is set) to reconnect to Wi-Fi, re-sync the clock, and refetch. |
 | `meta.upload_command` | string | no | Host-side-only, not read by the device: a shell command template (`{path}` → local JSON path) that `upload_json.py --upload` runs to push the JSON to `meta.url`'s server. See "Uploading your countdown data". |
-| `layout.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no, default 0 | Outer margins of the usable content area. |
-| `layout.gap_before_value` / `gap_value_after` | number (px) | no, default 0 | Vertical gap around the value box, applied only when the adjacent text is non-empty. |
+| `defaults.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no, default 0 | Fallback outer margins of the usable content area, for any item/format that doesn't specify its own — see "Setting resolution" below. |
+| `defaults.gap_before_value` / `gap_after_value` | number (px) | no, default 0 | Fallback vertical gap around the value box (applied only when the adjacent text is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. |
 | `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below. |
 | `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any item/format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
 | `defaults.led_colors` / `led_cycle_seconds` | array of `"#RRGGBB"` / number | no | Fallback LED light-show colors/cycle time for any item/format that doesn't specify its own — see below. |
@@ -322,6 +320,8 @@ Each entry in a `formats` list:
 | `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
 | `before_text` / `after_text` | string | no | Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/`defaults`; setting it to `""` explicitly is a real, final value that opts back out of an inherited one. |
 | `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides the item's/`defaults`' color for this specific format. |
+| `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no | Overrides the item's/`defaults`' outer margin for this specific format. |
+| `gap_before_value` / `gap_after_value` | number (px) | no | Overrides the item's/`defaults`' vertical gap around the value box for this specific format. |
 | `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides the item's/`defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). |
 | `led_colors` | array of `"#RRGGBB"` strings | no | Overrides the item's/`defaults.led_colors`. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No `led_colors` anywhere in the chain → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down. |
 | `led_cycle_seconds` | number | no, default `4.0` | Time for one full loop through `led_colors` (only meaningful with 2+ colors) — overrides the item's/`defaults.led_cycle_seconds`. |
@@ -464,10 +464,11 @@ Read-only / safe:
 
 Writes to the board's filesystem (reversible):
 
-- `make install-lib` — copy all `device/lib/*.py` modules to `/lib` on
-  the board
-- `make install-main` — copy `device/main.py` to the board's
-  filesystem root, so it runs on boot
+- `make install-python` — copy all `device/lib/*.py` modules to `/lib`
+  on the board, plus `device/main.py` to the board's filesystem root
+  (so it runs on boot); skipped if nothing's changed locally since the
+  last install (tracked via a local `.stamp-python` file) — use `make
+  -B install-python` to force it
 - `make install-wifi-config` — validate and copy the real (gitignored)
   `device/wifi_config.py` to the board (always the same fixed path,
   unlike your countdown data — see `upload_json.py` above for that)
@@ -625,7 +626,7 @@ then `/main.py` (the application) if present. Neither is installed by
 already-running interpreter over serial and executes it once, without
 writing it to the board's filesystem. To make something run
 automatically on power-up, it has to be copied to the board as
-`main.py` (see `make install-main`).
+`main.py` (see `make install-python`).
 
 ### Boot doesn't block on a slow/invalid `meta.url`
 

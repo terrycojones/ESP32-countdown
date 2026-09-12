@@ -32,18 +32,18 @@ def _draw_centered(fb, s, box_x, box_y, box_w, box_h, color):
     text.draw_scaled_text(fb, s, x, y, scale, color)
 
 
-def render_item(fb, width, height, layout, item, defaults, fmt, value_str):
+def render_item(fb, width, height, item, defaults, fmt, value_str):
     """Draws into RGB565 framebuf `fb` (width x height): background fill,
     before_text (if any), the countdown value, after_text (if any).
-    Per-format settings (colors, before_text/after_text) resolve through
-    the fmt -> item -> defaults chain -- see DESIGN.md "Setting
-    resolution"."""
-    margin_top = layout.get("margin_top", 0)
-    margin_bottom = layout.get("margin_bottom", 0)
-    margin_left = layout.get("margin_left", 0)
-    margin_right = layout.get("margin_right", 0)
-    gap_before_value = layout.get("gap_before_value", 0)
-    gap_value_after = layout.get("gap_value_after", 0)
+    Per-format settings (colors, before_text/after_text, margins/gaps)
+    resolve through the fmt -> item -> defaults chain -- see DESIGN.md
+    "Setting resolution"."""
+    margin_top = settings.resolve("margin_top", fmt, item, defaults, 0)
+    margin_bottom = settings.resolve("margin_bottom", fmt, item, defaults, 0)
+    margin_left = settings.resolve("margin_left", fmt, item, defaults, 0)
+    margin_right = settings.resolve("margin_right", fmt, item, defaults, 0)
+    gap_before_value = settings.resolve("gap_before_value", fmt, item, defaults, 0)
+    gap_after_value = settings.resolve("gap_after_value", fmt, item, defaults, 0)
 
     bg = _resolve_color("background", fmt, item, defaults, FALLBACK_BG)
     before_color = _resolve_color("before_color", fmt, item, defaults, FALLBACK_COLOR)
@@ -63,7 +63,7 @@ def render_item(fb, width, height, layout, item, defaults, fmt, value_str):
     before_h = LABEL_HEIGHT if before_text else 0
     after_h = LABEL_HEIGHT if after_text else 0
     before_gap = gap_before_value if before_text else 0
-    after_gap = gap_value_after if after_text else 0
+    after_gap = gap_after_value if after_text else 0
 
     value_top = content_top + before_h + before_gap
     value_bottom = content_bottom - after_h - after_gap

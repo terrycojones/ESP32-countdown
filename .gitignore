@@ -20,3 +20,6 @@ device/countdown_data.json
 # Machine-specific serial port (see README.md "Set your port once")
 port.txt
 *~
+
+# Local record of the last successful `make install-python` (see Makefile)
+.stamp-python

@@ -1,5 +1,5 @@
 # Runs automatically on every boot (MicroPython looks for /main.py after
-# /boot.py). Installed to the board's filesystem root via `make install-main`
+# /boot.py). Installed to the board's filesystem root via `make install-python`
 # -- copy this file there any time it changes, it is not auto-synced.
 #
 # See DESIGN.md for the full design this implements.
@@ -185,7 +185,7 @@ while True:
         display.set_brightness(d.backlight, display.resolve_brightness(fmt, item, defaults))
         target = isotime.parse_iso8601(item["target"])
         value_str = countdownfmt.format_value(target, now, fmt, item, defaults)
-        render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), item, defaults, fmt, value_str)
+        render.render_item(fb, WIDTH, HEIGHT, item, defaults, fmt, value_str)
         display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
         last_draw_time = now
 

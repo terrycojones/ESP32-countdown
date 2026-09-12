@@ -35,16 +35,27 @@ reset:
 # These write files to the board's onboard filesystem (not the flash image
 # itself). Reversible, but will overwrite any existing files at the same path.
 # NOTE: copying a file interrupts main.py if it's running, and does NOT
-# auto-resume it -- follow install-lib/install-main with `make reset` if
-# the app was running (see README.md "Uploading interrupts the running
-# app"). install-wifi-config resets automatically, via upload_wifi.py's
-# default behavior (pass --no-reset to upload_wifi.py directly to skip it).
+# auto-resume it -- follow install-python with `make reset` if the app was
+# running (see README.md "Uploading interrupts the running app").
+# install-wifi-config resets automatically, via upload_wifi.py's default
+# behavior (pass --no-reset to upload_wifi.py directly to skip it).
 
-.PHONY: install-lib install-main install-wifi-config test-display test-module test-text test-landscape test-logic test-host test-render
+.PHONY: install-python install-wifi-config test-display test-module test-text test-landscape test-logic test-host test-render
 
-# Copies all device/lib/*.py modules to /lib on the board, where
-# MicroPython's import system looks for modules automatically.
-install-lib:
+# Stamp file recording the last successful install-python run -- lets
+# test-module/test-text/test-logic/test-render (below) depend on this
+# instead of unconditionally reinstalling every time. Only tracks *local*
+# file changes since the last install, though -- it has no way to notice
+# the board's filesystem changing independently (a re-flash, a file edited
+# directly on-device, etc.), so `rm .stamp-python` (or `make -B
+# install-python`) forces a reinstall if you ever suspect the board is out
+# of sync with what this rule thinks it last pushed.
+#
+# Copies all device/lib/*.py modules to /lib on the board (where
+# MicroPython's import system looks for modules automatically), plus
+# device/main.py to the filesystem root as main.py, which MicroPython runs
+# automatically on every boot (after boot.py).
+.stamp-python: device/lib/*.py device/main.py
 	-uv run mpremote connect $(PORT) fs mkdir :lib
 	uv run mpremote connect $(PORT) cp device/lib/st7789py.py :lib/st7789py.py
 	uv run mpremote connect $(PORT) cp device/lib/display.py :lib/display.py
@@ -59,11 +70,13 @@ install-lib:
 	uv run mpremote connect $(PORT) cp device/lib/led.py :lib/led.py
 	uv run mpremote connect $(PORT) cp device/lib/ledshow.py :lib/ledshow.py
 	uv run mpremote connect $(PORT) cp device/lib/settings.py :lib/settings.py
-
-# Copies device/main.py to the board's filesystem root as main.py, which
-# MicroPython runs automatically on every boot (after boot.py).
-install-main:
 	uv run mpremote connect $(PORT) cp device/main.py :main.py
+	touch $@
+
+# Copies this project's Python code (device/lib/*.py + device/main.py) onto
+# the board -- see .stamp-python above for the dependency-tracking this
+# rides on.
+install-python: .stamp-python
 
 # Validates and copies the real (gitignored) device/wifi_config.py to the
 # board's filesystem root. See device/wifi_config.example.py for the format.
@@ -76,13 +89,14 @@ test-display:
 	uv run mpremote connect $(PORT) run device/test_display.py
 
 # Runs device/test_module.py, which exercises the reusable device/lib/display.py
-# module (requires install-lib to have been run first).
-test-module:
+# module (auto-reinstalls device/lib and device/main.py first if either has
+# changed locally since the last install -- see .stamp-python above).
+test-module: .stamp-python
 	uv run mpremote connect $(PORT) run device/test_module.py
 
 # Runs device/test_text.py, which exercises the scaled-text renderer in
-# device/lib/text.py (requires install-lib to have been run first).
-test-text:
+# device/lib/text.py (auto-reinstalls first if needed -- see .stamp-python).
+test-text: .stamp-python
 	uv run mpremote connect $(PORT) run device/test_text.py
 
 # Runs device/test_landscape.py to iterate on landscape rotation parameters.
@@ -90,10 +104,10 @@ test-landscape:
 	uv run mpremote connect $(PORT) run device/test_landscape.py
 
 # Runs tests/test_logic.py, sanity-checking colors.py/isotime.py/countdownfmt.py/
-# countdown_data.py directly on-device (requires install-lib to have been run
-# first). NOT a pytest test -- these modules need MicroPython's stdlib, not
-# CPython's; see test-host below for the host-side (pytest) suite.
-test-logic:
+# countdown_data.py directly on-device (auto-reinstalls first if needed --
+# see .stamp-python). NOT a pytest test -- these modules need MicroPython's
+# stdlib, not CPython's; see test-host below for the host-side (pytest) suite.
+test-logic: .stamp-python
 	uv run mpremote connect $(PORT) run tests/test_logic.py
 
 # Runs the host-side pytest suite (upload_json.py/upload_wifi.py/port_config.py
@@ -102,9 +116,10 @@ test-host:
 	uv run pytest tests/
 
 # Runs device/test_render.py, exercising device/lib/render.py against the
-# JSON currently uploaded to the device (requires install-lib and a prior
-# `uv run python upload_json.py <path>`).
-test-render:
+# JSON currently uploaded to the device (auto-reinstalls first if needed --
+# see .stamp-python; still requires a prior
+# `uv run python upload_json.py <path>` to seed the countdown data itself).
+test-render: .stamp-python
 	uv run mpremote connect $(PORT) run device/test_render.py
 
 # --- DANGER ZONE ---

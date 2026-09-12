@@ -11,15 +11,13 @@ from the hardware bring-up covered in README.md.
     "url": "https://user:pass@example.com/countdown.json",
     "refetch_after_seconds": 3600
   },
-  "layout": {
+  "defaults": {
     "margin_top": 4,
     "margin_bottom": 4,
     "margin_left": 4,
     "margin_right": 4,
     "gap_before_value": 4,
-    "gap_value_after": 4
-  },
-  "defaults": {
+    "gap_after_value": 4,
     "background": "#000000",
     "before_color": "#ffffff",
     "value_color": "#ffffff",
@@ -62,19 +60,25 @@ Notes:
 - `meta.refetch_after_seconds` controls how often (while `url` is present)
   the device reconnects to Wi-Fi, re-syncs the clock via NTP, and re-fetches
   the JSON.
-- `layout` is global (applies to all items, not overridable per-item).
 - `defaults` gives fallback values for any setting a format entry (or its
   parent item) omits. Includes `background`, so all four color fields live
-  at the same level.
+  at the same level, plus the six margin/gap fields (`margin_top`,
+  `margin_bottom`, `margin_left`, `margin_right`, `gap_before_value`,
+  `gap_after_value`) that size the three vertical boxes (before-text,
+  value, after-text) -- like every other setting here, these resolve
+  through the format -> item -> defaults chain (see "Setting resolution"
+  below), so an individual item or format can override the margins/gaps
+  it's drawn with instead of always using the global default.
 - `items` must contain at least one entry. Each item must have at least one
   entry in its own `formats` list.
 - Every setting a format entry can have (`type`, `precision`,
   `absolute_value`, `commas`, `before_text`, `after_text`, the four color
-  fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`) may
-  *also* be set directly on the parent `item` -- see "Setting resolution"
-  below. This is for formats that mostly share the same look/text and
-  differ only in, say, `type`/`precision`: put the shared settings on the
-  item once instead of repeating them on every one of its formats.
+  fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`, and the
+  six margin/gap fields) may *also* be set directly on the parent `item`
+  -- see "Setting resolution" below. This is for formats that mostly share
+  the same look/text and differ only in, say, `type`/`precision`: put the
+  shared settings on the item once instead of repeating them on every one
+  of its formats.
 - `before_text`/`after_text` may be empty/omitted -- the vertical space
   that text would have used is instead given entirely to the countdown
   value's box (not split/redistributed elsewhere). An empty string is a
@@ -96,7 +100,7 @@ that actually *sets* the key wins, else a hardcoded Python-level default
 One shared helper, `settings.resolve(key, fmt, item, defaults, fallback)`,
 implements this and is used everywhere a setting is looked up
 (`countdownfmt.py`, `display.resolve_brightness()`,
-`ledshow.resolve_led_spec()`, `render.py`'s color/text lookups,
+`ledshow.resolve_led_spec()`, `render.py`'s color/text/margin/gap lookups,
 `countdown_data.validate()`'s `type` check).
 
 Resolution is checked by **presence** (`key in source`), not truthiness:
@@ -173,9 +177,9 @@ color-aware drawing for this display -- `st7789py` only has raw
 pixel/rect/blit primitives, and `framebuf`'s built-in font is a fixed 8x8
 bitmap. This means a custom rendering module, using:
 
-- The `layout` margins/gaps to compute three vertical boxes (before-text,
-  value, after-text) within the 320x172 landscape frame, redistributing an
-  empty text box's space entirely into the value's box.
+- The resolved margin/gap settings to compute three vertical boxes
+  (before-text, value, after-text) within the 320x172 landscape frame,
+  redistributing an empty text box's space entirely into the value's box.
 - A scaled-text routine that draws the built-in 8x8 bitmap font upscaled by
   an integer factor N (nearest-neighbor, N x N blocks per source pixel),
   with N computed automatically per box from the available space and
