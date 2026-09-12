@@ -137,6 +137,23 @@ def _resolved_skip(fmt, item, defaults):
     return _resolved("skip", fmt, item, defaults, False)
 
 
+def _resolved_directional_text_present(base_key, fmt, item, defaults):
+    """True if `base_key` ("top_text" or "bottom_text") would resolve
+    non-empty for *any* zero/positive/negative state of the countdown
+    (i.e. the plain key, or its `_zero`/`_positive`/`_negative` variant,
+    resolves non-empty). This validation runs without knowing whether the
+    target will actually be ahead of or behind "now" at render time (nor
+    what the value will round to for display), so it's deliberately
+    conservative: it flags the text box as present if any variant could
+    produce it, matching device/lib/render.py's resolve_directional_text()."""
+    return bool(
+        _resolved(base_key, fmt, item, defaults, "")
+        or _resolved(base_key + "_zero", fmt, item, defaults, "")
+        or _resolved(base_key + "_positive", fmt, item, defaults, "")
+        or _resolved(base_key + "_negative", fmt, item, defaults, "")
+    )
+
+
 def _resolved_px(key, fmt, item, defaults, basis, fallback=0):
     """Resolves `key`, then interprets the result as a pixel count against
     `basis` (FRAME_WIDTH or FRAME_HEIGHT) -- same percentage-or-pixels rule
@@ -180,8 +197,12 @@ def _layout_warnings(data):
             if _resolved_skip(fmt, item, defaults):
                 continue
 
-            top_text = _resolved("top_text", fmt, item, defaults, "")
-            bottom_text = _resolved("bottom_text", fmt, item, defaults, "")
+            top_text = _resolved_directional_text_present(
+                "top_text", fmt, item, defaults
+            )
+            bottom_text = _resolved_directional_text_present(
+                "bottom_text", fmt, item, defaults
+            )
             margin_top = _resolved_px("margin_top", fmt, item, defaults, FRAME_HEIGHT)
             margin_bottom = _resolved_px(
                 "margin_bottom", fmt, item, defaults, FRAME_HEIGHT

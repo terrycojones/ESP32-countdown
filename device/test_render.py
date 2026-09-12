@@ -23,6 +23,7 @@ buf = bytearray(WIDTH * HEIGHT * 2)
 fb = framebuf.FrameBuffer(buf, WIDTH, HEIGHT, framebuf.RGB565)
 
 defaults = data.get("defaults", {})
+is_negative = countdownfmt.is_negative_delta(target, now)
 for i, fmt in enumerate(item["formats"]):
     value_str = countdownfmt.format_value(target, now, fmt, item, defaults)
     top = fmt.get("top_text")
@@ -31,7 +32,9 @@ for i, fmt in enumerate(item["formats"]):
         f"format {i}: type={fmt['type']} value={value_str!r} "
         f"top={top!r} bottom={bottom!r}"
     )
-    render.render_item(fb, WIDTH, HEIGHT, item, defaults, fmt, value_str)
+    render.render_item(
+        fb, WIDTH, HEIGHT, item, defaults, fmt, value_str, is_negative
+    )
     display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
     if i < len(item["formats"]) - 1:
         time.sleep(8)

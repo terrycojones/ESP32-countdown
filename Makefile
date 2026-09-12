@@ -54,10 +54,10 @@ reset:
 # clears this; the plain raw-REPL soft reset inside `mpremote run` does
 # not.
 
-.PHONY: install-python install-wifi-config test-display test-module test-text test-landscape test-logic test-host test-render
+.PHONY: install-python install-wifi-config test-display test-module test-text test-landscape test-micropython test-host test-render
 
 # Stamp file recording the last successful install-python run -- lets
-# test-module/test-text/test-logic/test-render (below) depend on this
+# test-module/test-text/test-micropython/test-render (below) depend on this
 # instead of unconditionally reinstalling every time. Only tracks *local*
 # file changes since the last install, though -- it has no way to notice
 # the board's filesystem changing independently (a re-flash, a file edited
@@ -126,12 +126,12 @@ test-landscape:
 	uv run mpremote connect $(PORT) reset
 	uv run mpremote connect $(PORT) run device/test_landscape.py
 
-# Runs tests/test_logic.py, sanity-checking colors.py/isotime.py/countdownfmt.py/
+# Runs tests/test_micropython.py, sanity-checking colors.py/isotime.py/countdownfmt.py/
 # countdown_data.py directly on-device (auto-reinstalls first if needed --
 # see .stamp-python). NOT a pytest test -- these modules need MicroPython's
 # stdlib, not CPython's; see test-host below for the host-side (pytest) suite.
-test-logic: .stamp-python
-	uv run mpremote connect $(PORT) run tests/test_logic.py
+test-micropython: .stamp-python
+	uv run mpremote connect $(PORT) run tests/test_micropython.py
 
 # Runs the host-side pytest suite (upload_json.py/upload_wifi.py/port_config.py
 # validation logic) -- pure Python, no device/PORT needed.

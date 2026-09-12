@@ -46,6 +46,20 @@ def _add_commas(s):
     return result + "." + frac_part if frac_part else result
 
 
+def is_negative_delta(target_epoch, now_epoch):
+    """Whether the target has already passed -- i.e. the raw
+    (target_epoch - now_epoch) delta is negative -- computed the same way
+    format_value() computes delta_seconds internally, but *before* that
+    function's `absolute_value` handling. `absolute_value` only changes
+    how the value is displayed (always non-negative), not whether the
+    target is actually in the future or past, so a caller that needs the
+    real sign (e.g. render.py's resolve_directional_text(), for
+    top_text_positive/top_text_negative) must use this rather than
+    inspecting the formatted value string -- absolute_value can make that
+    string never show a leading '-' even for a past target."""
+    return (target_epoch - now_epoch) < 0
+
+
 def format_value(target_epoch, now_epoch, fmt, item=None, defaults=None):
     """`item`/`defaults` extend the lookup for every format-level setting
     below to the three-tier fmt -> item -> defaults chain -- see
@@ -100,6 +114,8 @@ def format_value(target_epoch, now_epoch, fmt, item=None, defaults=None):
         days, rem = divmod(total_seconds, 86400)
         hours, rem = divmod(rem, 3600)
         minutes, seconds = divmod(rem, 60)
+        if days == 0:
+            return "{}{:02d}:{:02d}:{:02d}".format(sign, hours, minutes, seconds)
         return "{}{}-{:02d}:{:02d}:{:02d}".format(sign, days, hours, minutes, seconds)
 
     raise ValueError("unknown format type: {}".format(ftype))

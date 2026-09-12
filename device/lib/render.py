@@ -34,6 +34,72 @@ def _resolve_px(key, fmt, item, defaults, basis, fallback=0):
     return value
 
 
+def _is_zero_value_str(value_str):
+    """True if `value_str` (the already-formatted value, e.g. "0.00",
+    "-0", "00:00:00", "-00:00:00", "1,234.50") displays as zero -- i.e.
+    every digit in it (ignoring a leading sign and separators like ":",
+    ".", ",") is "0". This is about the *displayed* value, not the exact
+    underlying delta: a "days" format with low precision can round a
+    small delta down to "0", and a small enough delta can round a dhms
+    format down to "00:00:00" (or, just past the target, "-00:00:00") --
+    both should count as zero for text selection even though the real
+    delta isn't exactly zero."""
+    digits = "".join(c for c in value_str if c in "0123456789")
+    return bool(digits) and all(c == "0" for c in digits)
+
+
+def resolve_directional_text(base_key, value_str, is_negative, fmt, item, defaults):
+    """Resolves `base_key` ("top_text" or "bottom_text"), preferring a
+    variant specific to the countdown's current state: `_zero` (falling
+    back to `_positive` if `_zero` isn't set) when `value_str` *displays*
+    as zero (see _is_zero_value_str() above), else `_negative` when
+    `is_negative`, else `_positive`. `is_negative` must be the *raw*
+    target-vs-now sign (see countdownfmt.is_negative_delta()), computed
+    before any `absolute_value` handling -- `value_str` itself can't be
+    used for this, since `absolute_value` strips the sign before
+    formatting and would make `_negative` unreachable. Each variant
+    resolves through the usual fmt -> item -> defaults chain, checked by
+    presence -- see settings.resolve() -- and if none of the variants
+    tried are set anywhere in that chain, falls back to the plain
+    `base_key` chain."""
+    if _is_zero_value_str(value_str):
+        suffixes = ("_zero", "_positive")
+    elif is_negative:
+        suffixes = ("_negative",)
+    else:
+        suffixes = ("_positive",)
+    for suffix in suffixes:
+        specific = settings.resolve(base_key + suffix, fmt, item, defaults, None)
+        if specific is not None:
+            return specific
+    return settings.resolve(base_key, fmt, item, defaults, "")
+
+
+def _is_singular_value_str(value_str):
+    """True if `value_str` displays as exactly 1 (or -1, or 1 followed by
+    only zero decimal digits, e.g. "1.00") -- used by
+    apply_pluralization() below to decide what a "%s" placeholder expands
+    to. A plain string check rather than a regex: the pattern is just "an
+    optional leading '-', then '1', then an optional '.' followed by only
+    '0's", which a partition on '.' handles directly."""
+    s = value_str[1:] if value_str.startswith("-") else value_str
+    int_part, _, frac_part = s.partition(".")
+    return int_part == "1" and (not frac_part or set(frac_part) <= {"0"})
+
+
+def apply_pluralization(s, value_str):
+    """Expands a "%s" placeholder in `s` (top_text/bottom_text) into ""
+    when `value_str` displays as singular (see _is_singular_value_str()
+    above, e.g. "1" or "-1" or "1.00") or "s" otherwise -- lets one format
+    string like "day%s" read correctly as both "1 day" and "3 days"
+    without needing separate singular/plural text. No escape mechanism
+    for a literal "%s" -- not expected to come up in practice for
+    countdown text."""
+    if "%s" not in s:
+        return s
+    return s.replace("%s", "" if _is_singular_value_str(value_str) else "s")
+
+
 def _draw_centered(fb, s, box_x, box_y, box_w, box_h, color, proportional=False):
     if not s:
         return
@@ -44,14 +110,20 @@ def _draw_centered(fb, s, box_x, box_y, box_w, box_h, color, proportional=False)
     text.draw_scaled_text(fb, s, x, y, scale, color, proportional=proportional)
 
 
-def render_item(fb, width, height, item, defaults, fmt, value_str):
+def render_item(fb, width, height, item, defaults, fmt, value_str, is_negative):
     """Draws into RGB565 framebuf `fb` (width x height): background fill,
     top_text (if any), the countdown value, bottom_text (if any).
     Per-format settings (colors, top_text/bottom_text, margins/gaps)
     resolve through the fmt -> item -> defaults chain -- see DESIGN.md
     "Setting resolution". Margins/gaps/text heights may each be given as
     a plain number (pixels) or a percentage string like "12%" -- see
-    DESIGN.md "Percentage layout values"."""
+    DESIGN.md "Percentage layout values". top_text/bottom_text prefer a
+    `_zero`/`_positive`/`_negative` variant matching value_str's displayed
+    zero-ness, else `is_negative` -- see resolve_directional_text(); the
+    caller must pass countdownfmt.is_negative_delta()'s result for
+    `is_negative`, not derive it from `value_str` itself. A "%s" anywhere
+    in the resolved top_text/bottom_text is then expanded per
+    apply_pluralization()."""
     margin_top = _resolve_px("margin_top", fmt, item, defaults, height)
     margin_bottom = _resolve_px("margin_bottom", fmt, item, defaults, height)
     margin_left = _resolve_px("margin_left", fmt, item, defaults, width)
@@ -78,8 +150,18 @@ def render_item(fb, width, height, item, defaults, fmt, value_str):
     content_top = margin_top
     content_bottom = height - margin_bottom
 
-    top_text = settings.resolve("top_text", fmt, item, defaults, "")
-    bottom_text = settings.resolve("bottom_text", fmt, item, defaults, "")
+    top_text = apply_pluralization(
+        resolve_directional_text(
+            "top_text", value_str, is_negative, fmt, item, defaults
+        ),
+        value_str,
+    )
+    bottom_text = apply_pluralization(
+        resolve_directional_text(
+            "bottom_text", value_str, is_negative, fmt, item, defaults
+        ),
+        value_str,
+    )
 
     top_h = (
         _resolve_px("top_text_height", fmt, item, defaults, height, DEFAULT_TEXT_HEIGHT)

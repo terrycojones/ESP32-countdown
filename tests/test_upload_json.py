@@ -183,6 +183,24 @@ def test_gap_counts_once_its_text_is_present():
     assert "blank" in warnings[0]
 
 
+@pytest.mark.parametrize(
+    "key", ["top_text_positive", "top_text_negative", "top_text_zero"]
+)
+def test_gap_counts_when_only_a_directional_text_variant_is_present(key):
+    # No plain top_text at all -- only a _positive/_negative/_zero variant
+    # -- but render.py's resolve_directional_text() can still resolve
+    # non-empty text from it depending on the countdown's displayed sign,
+    # so the layout warning must treat the text box as present too (see
+    # _resolved_directional_text_present()).
+    data = {
+        "defaults": {"gap_before_value": 200},
+        "items": [_item(formats=[{"type": "dhms", key: "T-minus"}])],
+    }
+    warnings = upload_json._layout_warnings(data)
+    assert len(warnings) == 1
+    assert "blank" in warnings[0]
+
+
 def test_text_height_counts_towards_vertical_total():
     data = {
         "defaults": {"top_text_height": 172},

@@ -185,7 +185,10 @@ while True:
         display.set_brightness(d.backlight, display.resolve_brightness(fmt, item, defaults))
         target = isotime.parse_iso8601(item["target"])
         value_str = countdownfmt.format_value(target, now, fmt, item, defaults)
-        render.render_item(fb, WIDTH, HEIGHT, item, defaults, fmt, value_str)
+        is_negative = countdownfmt.is_negative_delta(target, now)
+        render.render_item(
+            fb, WIDTH, HEIGHT, item, defaults, fmt, value_str, is_negative
+        )
         display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
         last_draw_time = now
 

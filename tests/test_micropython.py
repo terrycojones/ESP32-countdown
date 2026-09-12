@@ -1,16 +1,18 @@
-# Runs on the real MicroPython device (via `make test-logic`), not under
+# Runs on the real MicroPython device (via `make test-micropython`), not under
 # pytest -- these modules live in device/lib/ and depend on MicroPython's
 # stdlib subset, not CPython's. See pyproject.toml's [tool.pytest.ini_options]
 # for how pytest is kept from trying to collect this file.
 #
 # Sanity-checks colors.py / isotime.py / countdownfmt.py / countdown_data.py /
-# display.py's resolve_brightness / ledshow.py directly on the device's real
-# MicroPython interpreter, since subtle stdlib differences from CPython
-# (str.format support, integer/float precision, divmod with negatives) are
-# worth confirming rather than assuming. Importing display.py has no side
+# display.py's resolve_brightness / ledshow.py / render.py's
+# resolve_directional_text directly on the device's real MicroPython
+# interpreter, since subtle stdlib differences from CPython (str.format
+# support, integer/float precision, divmod with negatives) are worth
+# confirming rather than assuming. Importing display.py has no side
 # effects (no hardware is touched until init_display() is actually called),
 # so it's safe to import here just for resolve_brightness; same for led.py
-# (no hardware touched until init_led() is called) and ledshow.py (pure math).
+# (no hardware touched until init_led() is called), ledshow.py (pure math),
+# and render.py (framebuf-only, no direct display/SPI calls -- see text.py).
 import time
 
 import colors
@@ -19,6 +21,7 @@ import countdown_data
 import countdownfmt
 import isotime
 import ledshow
+import render
 import settings
 
 print("hex_to_rgb565('#ff0000') =", hex(colors.hex_to_rgb565("#ff0000")))
@@ -57,7 +60,23 @@ assert v == "1-01:01:01", v
 
 v = countdownfmt.format_value(past, now, {"type": "dhms"})
 print("dhms past:", v)
-assert v == "-0-02:03:04", v
+assert v == "-02:03:04", v
+
+# -- countdownfmt.is_negative_delta --
+assert countdownfmt.is_negative_delta(future, now) is False, "target still ahead"
+assert countdownfmt.is_negative_delta(past, now) is True, "target already passed"
+assert countdownfmt.is_negative_delta(now, now) is False, (
+    "target == now is not negative"
+)
+# Regression: must reflect the raw sign, unaffected by absolute_value --
+# it strips the sign only for *display*, e.g. format_value() would show
+# this "past" delta as a plain positive number, but is_negative_delta()
+# must still report it as negative (see render.resolve_directional_text()).
+assert countdownfmt.format_value(
+    past, now, {"type": "seconds", "absolute_value": True}
+) == "7384"
+assert countdownfmt.is_negative_delta(past, now) is True
+print("is_negative_delta OK")
 
 # Deltas constructed as exact integer seconds (277344 = 86400*3.21,
 # 129600 = 86400*1.5) rather than `now + 86400 * 3.21` -- that would force a
@@ -346,6 +365,132 @@ assert (c, cyc) == (None, None), (
     "does not fall through to defaults"
 )
 print("resolve_led_spec OK")
+
+# -- render._is_zero_value_str --
+for zero_str in ("0", "0.00", "-0", "-0.00", "00:00:00", "-00:00:00"):
+    assert render._is_zero_value_str(zero_str) is True, zero_str
+for nonzero_str in ("5", "-5", "0.01", "-0.01", "1-01:01:01", "-02:03:04", "1,234.50"):
+    assert render._is_zero_value_str(nonzero_str) is False, nonzero_str
+print("_is_zero_value_str OK")
+
+# -- render.resolve_directional_text --
+assert render.resolve_directional_text("top_text", "5", False, {}, {}, {}) == "", (
+    "nothing set anywhere -> empty string fallback"
+)
+assert render.resolve_directional_text(
+    "top_text", "5", False, {}, {}, {"top_text": "generic"}
+) == "generic", (
+    "no _positive/_negative/_zero variant set -> falls back to the plain key"
+)
+assert render.resolve_directional_text(
+    "top_text", "5", True, {}, {}, {"top_text": "generic"}
+) == "generic", "same fallback for the negative case"
+assert render.resolve_directional_text(
+    "top_text", "0", False, {}, {}, {"top_text": "generic"}
+) == "generic", "same fallback for the zero case"
+assert render.resolve_directional_text(
+    "top_text",
+    "5",
+    False,
+    {},
+    {},
+    {"top_text": "generic", "top_text_positive": "future"},
+) == "future", "_positive variant set -> wins over the plain key, positive sign"
+assert render.resolve_directional_text(
+    "top_text",
+    "5",
+    True,
+    {},
+    {},
+    {"top_text": "generic", "top_text_negative": "past"},
+) == "past", "_negative variant set -> wins over the plain key, is_negative True"
+assert render.resolve_directional_text(
+    "top_text",
+    "5",
+    True,
+    {},
+    {},
+    {"top_text": "generic", "top_text_positive": "future"},
+) == "generic", (
+    "_positive variant set but is_negative is True -> falls back to the plain key"
+)
+# Regression: is_negative must be honored even when value_str itself has no
+# leading '-' -- exactly what happens when absolute_value strips the sign
+# for display (see countdownfmt.is_negative_delta()). Using value_str's own
+# sign here would wrongly select _positive instead.
+assert render.resolve_directional_text(
+    "top_text",
+    "7384",
+    True,
+    {},
+    {},
+    {"top_text": "generic", "top_text_positive": "future", "top_text_negative": "past"},
+) == "past", "is_negative True must win even though value_str ('7384') looks positive"
+assert render.resolve_directional_text(
+    "top_text",
+    "0",
+    False,
+    {},
+    {},
+    {"top_text": "generic", "top_text_positive": "future", "top_text_zero": "now"},
+) == "now", "_zero variant set -> wins over both _positive and the plain key"
+assert render.resolve_directional_text(
+    "top_text",
+    "0",
+    False,
+    {},
+    {},
+    {"top_text": "generic", "top_text_positive": "future"},
+) == "future", "no _zero variant set -> zero falls back to _positive, not the plain key"
+assert render.resolve_directional_text(
+    "top_text",
+    "-0.00",
+    True,
+    {},
+    {},
+    {"top_text": "generic", "top_text_negative": "past"},
+) == "generic", (
+    "a value displaying as zero uses the zero/positive fallback even when "
+    "is_negative is True -- it does not fall back to _negative"
+)
+assert render.resolve_directional_text(
+    "top_text",
+    "5",
+    True,
+    {"top_text_negative": "fmt-level"},
+    {"top_text_negative": "item-level"},
+    {"top_text_negative": "defaults-level"},
+) == "fmt-level", (
+    "_negative variant itself follows the usual fmt -> item -> defaults chain"
+)
+assert render.resolve_directional_text(
+    "top_text", "5", False, {"top_text_positive": ""}, {}, {"top_text": "generic"}
+) == "", (
+    "an explicit empty _positive variant is a real, final value -- "
+    "does not fall through to the plain key"
+)
+print("resolve_directional_text OK")
+
+# -- render._is_singular_value_str --
+for singular_str in ("1", "-1", "1.0", "1.00", "-1.00"):
+    assert render._is_singular_value_str(singular_str) is True, singular_str
+for plural_str in ("0", "2", "-2", "1.01", "-1.01", "10", "0.1", "1,000"):
+    assert render._is_singular_value_str(plural_str) is False, plural_str
+print("_is_singular_value_str OK")
+
+# -- render.apply_pluralization --
+assert render.apply_pluralization("day%s", "1") == "day", "singular -> %s drops out"
+assert render.apply_pluralization("day%s", "-1") == "day", "singular -> %s drops out"
+assert render.apply_pluralization("day%s", "1.00") == "day", (
+    "singular -> %s drops out, even with trailing zero decimals"
+)
+assert render.apply_pluralization("day%s", "3") == "days", "plural -> %s becomes 's'"
+assert render.apply_pluralization("day%s", "0") == "days", "zero counts as plural"
+assert (
+    render.apply_pluralization("no placeholder here", "3") == "no placeholder here"
+), "no '%s' in the text -> returned unchanged"
+assert render.apply_pluralization("", "1") == "", "empty text -> stays empty"
+print("apply_pluralization OK")
 
 # -- ledshow.current_color --
 assert ledshow.current_color([(10, 20, 30)], 5000, 12345) == (10, 20, 30), "single color is always fixed"

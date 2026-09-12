@@ -318,11 +318,12 @@ Each entry in a `formats` list:
 
 <table>
 <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
-<tr><td><code>type</code></td><td><code>"years"</code>, <code>"days"</code>, <code>"hours"</code>, <code>"minutes"</code>, <code>"seconds"</code>, or <code>"dhms"</code></td><td><strong>yes</strong></td><td>The first five: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit (<code>"years"</code> uses the 365.25-day Julian year, the usual astronomical/calendar average that accounts for leap years). <code>"dhms"</code>: integer <code>D-HH:MM:SS</code> breakdown. Past events show a leading <code>-</code> either way.</td></tr>
+<tr><td><code>type</code></td><td><code>"years"</code>, <code>"days"</code>, <code>"hours"</code>, <code>"minutes"</code>, <code>"seconds"</code>, or <code>"dhms"</code></td><td><strong>yes</strong></td><td>The first five: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit (<code>"years"</code> uses the 365.25-day Julian year, the usual astronomical/calendar average that accounts for leap years). <code>"dhms"</code>: integer <code>D-HH:MM:SS</code> breakdown, or just <code>HH:MM:SS</code> when the day count is zero. Past events show a leading <code>-</code> either way.</td></tr>
 <tr><td><code>precision</code></td><td>integer</td><td>only for <code>"years"</code>, <code>"days"</code>, <code>"hours"</code>, <code>"minutes"</code>, <code>"seconds"</code></td><td>Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) <code>"dhms"</code>.</td></tr>
 <tr><td><code>absolute_value</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, the value is run through <code>abs()</code> before formatting (any <code>type</code>) — for an always-in-the-past target where the sign is just noise, e.g. <code>top_text: "You are"</code>, <code>bottom_text: "days old"</code>, <code>absolute_value: true</code> → "You are 10957.83 days old" instead of "You are -10957.83 days old".</td></tr>
 <tr><td><code>commas</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, inserts thousands-separator commas into the number, e.g. <code>1,234,567.90</code> instead of <code>1234567.90</code> (sign stays outside the grouping). Only meaningful for <code>"years"</code>, <code>"days"</code>, <code>"hours"</code>, <code>"minutes"</code>, <code>"seconds"</code>, not <code>"dhms"</code>.</td></tr>
-<tr><td><code>top_text</code>, <code>bottom_text</code></td><td>string</td><td>no</td><td>Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/<code>defaults</code>; setting it to <code>""</code> explicitly is a real, final value that opts back out of an inherited one.</td></tr>
+<tr><td><code>top_text</code>, <code>bottom_text</code></td><td>string</td><td>no</td><td>Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/<code>defaults</code>; setting it to <code>""</code> explicitly is a real, final value that opts back out of an inherited one. A literal <code>%s</code> anywhere in the (already-resolved) text is expanded to <code>""</code> when the displayed value is singular (<code>"1"</code>, <code>"-1"</code>, or <code>"1"</code> followed only by zero decimal digits, e.g. <code>"1.00"</code>) or to <code>"s"</code> otherwise — e.g. <code>top_text: "day%s"</code> reads as "day" for a value of <code>1</code> and "days" for anything else, without needing separate singular/plural text. No escape for a literal <code>%s</code> — not expected to come up in practice.</td></tr>
+<tr><td><code>top_text_positive</code>, <code>top_text_negative</code>, <code>top_text_zero</code>, <code>bottom_text_positive</code>, <code>bottom_text_negative</code>, <code>bottom_text_zero</code></td><td>string</td><td>no</td><td>Overrides of <code>top_text</code>/<code>bottom_text</code>, checked in two different ways: <code>_zero</code> is checked against the <em>displayed</em> value — not the exact underlying delta, so a "days" format with low <code>precision</code> rounding down to <code>"0"</code>, or a <code>"dhms"</code> delta small enough to show <code>"00:00:00"</code>, both count as zero even though the real delta isn't exactly zero — while <code>_positive</code>/<code>_negative</code> are checked against whether the target is actually still ahead or has already passed, regardless of how the value ends up formatted. Selection order: a zero displayed value tries <code>_zero</code>, then <code>_positive</code>; otherwise, an already-passed target tries <code>_negative</code>; a still-future one tries <code>_positive</code> — whichever of those isn't set anywhere in the fmt → item → <code>defaults</code> chain falls back to the plain <code>top_text</code>/<code>bottom_text</code> chain. E.g. <code>top_text_positive: "until"</code>, <code>top_text_negative: "since"</code>, <code>top_text_zero: "right now!"</code>. <code>absolute_value: true</code> only changes how the value is <em>displayed</em> (never negative) — it doesn't change whether the target has actually passed, so <code>_negative</code> can still apply even though the number shown is positive, e.g. for a birthday: <code>top_text_negative: "You are"</code>, <code>bottom_text_negative: "days old"</code>.</td></tr>
 <tr><td><code>background</code>, <code>top_text_color</code>, <code>value_color</code>, <code>bottom_text_color</code></td><td><code>"#RRGGBB"</code> string</td><td>no</td><td>Overrides the item's/<code>defaults</code>' color for this specific format.</td></tr>
 <tr><td><code>margin_top</code>, <code>margin_bottom</code>, <code>margin_left</code>, <code>margin_right</code></td><td>number (px) or <code>"N%"</code> string</td><td>no</td><td>Overrides the item's/<code>defaults</code>' outer margin for this specific format.</td></tr>
 <tr><td><code>gap_before_value</code>, <code>gap_after_value</code></td><td>number (px) or <code>"N%"</code> string</td><td>no</td><td>Overrides the item's/<code>defaults</code>' vertical gap around the value box for this specific format.</td></tr>
@@ -450,11 +451,11 @@ works this way, the data-caching/fallback behavior, etc).
 
 Two different kinds, run two different ways:
 
-- **`tests/test_logic.py`** — real assertions (`assert`, not just
+- **`tests/test_micropython.py`** — real assertions (`assert`, not just
   prints) for the pure-logic MicroPython modules: `colors.py`,
   `isotime.py`, `countdownfmt.py`, `countdown_data.py`'s
   `validate()`, `split_auth()`. Runs *on the device* (`make
-  test-logic`), since these modules use MicroPython's stdlib subset,
+  test-micropython`), since these modules use MicroPython's stdlib subset,
   not CPython's — it is **not** a pytest test, and `pyproject.toml`'s
   `[tool.pytest.ini_options]` explicitly excludes it from pytest
   collection so `make test-host` doesn't try (and fail) to import it.
@@ -489,7 +490,7 @@ Read-only / safe:
 - `make test-display`, `test-module`, `test-text`, `test-landscape`,
   `test-render` — manual bring-up/verification scripts, no automated
   pass/fail (see "Where are the tests?" above)
-- `make test-logic` — real automated assertions, run on-device (see
+- `make test-micropython` — real automated assertions, run on-device (see
   "Where are the tests?" above)
 - `make test-host` — real automated pytest suite for the host-side
   scripts, no device needed (see "Where are the tests?" above)
@@ -766,7 +767,7 @@ correct for any proleptic-Gregorian year using plain integer
 arithmetic, no libc `mktime` involved. Verified against known
 reference points (`2000-01-01` → `0`, `1970-01-01` → `-946684800`) and
 the original failing 1963 date, now covered by a permanent regression
-test in `tests/test_logic.py`.
+test in `tests/test_micropython.py`.
 
 ### This device's floats are 32-bit, not 64-bit
 
@@ -774,7 +775,7 @@ Confirmed empirically while adding the `commas` format option: `1.1 + 2.2` gives
 
 First, and directly relevant to `commas`: MicroPython's f-strings/`str.format()` silently *ignore* the `,` thousands-separator flag on this build — `f'{1234567.9:,.2f}'` produces `'1234567.90'`, no comma, and no error either. So `commas` is implemented by hand (`countdownfmt._add_commas()`, plain string manipulation on the already-formatted number), not via the standard format spec.
 
-Second — this one was a real, user-visible bug, not just cosmetic: for a large enough delta, `format_value()`'s old `delta_seconds / unit_seconds` float division lost enough precision that the displayed value stopped changing every tick. Reported as "the displayed number of seconds does not change" for a `"seconds"`-since-1963 countdown (delta ≈ 2 billion seconds) — float32 only exactly represents integers up to 2**24 (~16.7 million), so the division rounded to the nearest ~100, and the display appeared frozen for over a minute at a time between visible jumps. Fixed in `countdownfmt.format_value()` by doing the value/precision math in pure integer arithmetic throughout (scale the exact-integer delta by `10**precision`, integer-divide with rounding, then string-slice in the decimal point) — the delta never gets converted through a float at all, so the result is now exact regardless of how large the delta or `precision` get. Covered by a permanent regression test in `tests/test_logic.py` asserting consecutive whole seconds produce distinct, correctly-incrementing values for a ~2 billion second delta.
+Second — this one was a real, user-visible bug, not just cosmetic: for a large enough delta, `format_value()`'s old `delta_seconds / unit_seconds` float division lost enough precision that the displayed value stopped changing every tick. Reported as "the displayed number of seconds does not change" for a `"seconds"`-since-1963 countdown (delta ≈ 2 billion seconds) — float32 only exactly represents integers up to 2**24 (~16.7 million), so the division rounded to the nearest ~100, and the display appeared frozen for over a minute at a time between visible jumps. Fixed in `countdownfmt.format_value()` by doing the value/precision math in pure integer arithmetic throughout (scale the exact-integer delta by `10**precision`, integer-divide with rounding, then string-slice in the decimal point) — the delta never gets converted through a float at all, so the result is now exact regardless of how large the delta or `precision` get. Covered by a permanent regression test in `tests/test_micropython.py` asserting consecutive whole seconds produce distinct, correctly-incrementing values for a ~2 billion second delta.
 
 ### Onboard RGB LED needs R/G swapped
 

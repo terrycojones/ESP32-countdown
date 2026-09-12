@@ -79,9 +79,12 @@ Notes:
 - `items` must contain at least one entry. Each item must have at least one
   entry in its own `formats` list.
 - Every setting a format entry can have (`type`, `precision`,
-  `absolute_value`, `commas`, `top_text`, `bottom_text`, the four color
-  fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`,
-  `proportional_font`, and the eight margin/gap/text-height fields) may
+  `absolute_value`, `commas`, `top_text`, `bottom_text`,
+  `top_text_positive`, `top_text_negative`, `top_text_zero`,
+  `bottom_text_positive`, `bottom_text_negative`, `bottom_text_zero`, the
+  four color fields, `brightness`, `led_colors`, `led_cycle_seconds`,
+  `skip`, `proportional_font`, and the eight margin/gap/text-height
+  fields) may
   *also* be set directly on the parent `item` -- see "Setting resolution"
   below. This is for formats that mostly share the same look/text and
   differ only in, say, `type`, `precision`: put the shared settings on the
@@ -92,6 +95,17 @@ Notes:
   real, final value (see "Setting resolution"): a format can set
   `top_text: ""` to explicitly suppress an item-level `top_text` it
   would otherwise inherit.
+- `top_text_positive`/`top_text_negative`/`top_text_zero` and
+  `bottom_text_positive`/`bottom_text_negative`/`bottom_text_zero`
+  optionally override `top_text`/`bottom_text`: `_zero` is checked
+  against the *displayed* value (it can round to zero at low
+  `precision`), while `_positive`/`_negative` are checked against the
+  real target-vs-now sign, not the display -- see "Rendering" below for
+  exactly how each is read and how these resolve.
+- A literal `%s` anywhere in the resolved `top_text`/`bottom_text`
+  expands to `""` or `"s"` depending on whether the displayed value is
+  singular -- simple conditional pluralization, e.g. `top_text:
+  "day%s"`. See "Rendering" below (`apply_pluralization()`).
 - Past events (target date already passed) show a negative value with a
   leading `-`, for both `days` and `dhms` format types. No special
   "T+"-style wording.
@@ -107,8 +121,9 @@ that actually *sets* the key wins, else a hardcoded Python-level default
 One shared helper, `settings.resolve(key, fmt, item, defaults, fallback)`,
 implements this and is used everywhere a setting is looked up
 (`countdownfmt.py`, `display.resolve_brightness()`,
-`ledshow.resolve_led_spec()`, `render.py`'s color/text/margin/gap lookups,
-`countdown_data.validate()`'s `type` check).
+`ledshow.resolve_led_spec()`, `render.py`'s color/margin/gap lookups and
+`resolve_directional_text()` (`top_text`/`bottom_text`, see "Rendering"
+below), `countdown_data.validate()`'s `type` check).
 
 Resolution is checked by **presence** (`key in source`), not truthiness:
 an explicit falsy value at whichever tier sets it first -- `0.0` brightness,
@@ -239,6 +254,39 @@ bitmap. This means a custom rendering module, using:
   boxes (top-text, value, bottom-text) within the 320x172 landscape
   frame, redistributing an empty text box's space entirely into the
   value's box.
+- `render.resolve_directional_text()` picks `top_text`/`bottom_text` from
+  two independent inputs: whether the formatted value string *displays*
+  as zero (`_is_zero_value_str()`: every digit in it, ignoring a leading
+  sign and separators like `:`, `.`, `,`, is `"0"` -- so a `"days"`
+  format with a low enough `precision` that rounds a small delta down to
+  `"0"`, or a `"dhms"` delta small enough to round down to `"00:00:00"`,
+  both count as zero even though the real delta isn't exactly zero), and
+  `is_negative`, the caller-supplied *raw* target-vs-now sign from
+  `countdownfmt.is_negative_delta()` -- computed before `absolute_value`
+  (if set) would strip the sign for display, since `render_item()` can't
+  recover the real sign from the formatted string once that's happened.
+  Selection order: a zero displayed value tries `_zero` then `_positive`
+  (regardless of `is_negative`); otherwise `is_negative` tries
+  `_negative`; anything else tries `_positive` -- each key resolved
+  through the usual fmt -> item -> defaults chain, falling back to
+  resolving the plain `top_text`/`bottom_text` chain only once none of
+  the variants tried for that case are set *anywhere* in the chain
+  (checked by presence, same rule as every other setting -- see "Setting
+  resolution"). Since `absolute_value: true` only changes formatting, not
+  the underlying delta, `is_negative` still reflects the real past/future
+  state even though the displayed number is never negative.
+- `render.apply_pluralization()` then expands a literal `%s` anywhere in
+  the resolved `top_text`/`bottom_text` into `""` if `value_str` displays
+  as singular (`_is_singular_value_str()`: an optional leading `-`, then
+  `"1"`, then either nothing or a `.` followed only by `"0"`s -- so
+  `"1"`, `"-1"`, `"1.00"` all count, but `"1.01"`, `"10"`, `"0.1"` don't)
+  or `"s"` otherwise -- so `top_text: "day%s"` reads as "day" for a value
+  of `1` and "days" for anything else (including `0`), without needing
+  separate singular/plural text for each format. No escape mechanism for
+  a literal `%s` in the text -- not expected to come up in practice for
+  countdown text, and skipped here to keep the substitution simple (a
+  plain `str.replace()`, not a regex -- MicroPython does ship a `re`
+  module, but the pattern here doesn't need one).
 - A scaled-text routine that draws the built-in 8x8 bitmap font upscaled by
   a factor N -- N can be fractional, not just an integer: each source
   pixel's destination block edges are rounded independently
@@ -481,7 +529,7 @@ Display update cadence (how often the value is recalculated/redrawn) is
   `10**precision`, integer-divide with rounding, then string-slice in the
   decimal point) -- the delta is never converted through a float, so the
   result is now exact regardless of how large the delta or `precision`
-  get. Covered by a permanent regression test in `tests/test_logic.py`.
+  get. Covered by a permanent regression test in `tests/test_micropython.py`.
 
 ## Data lifecycle
 
