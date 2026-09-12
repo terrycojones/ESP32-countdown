@@ -120,25 +120,44 @@ bitmap. This means a custom rendering module, using:
 
 ## Value formats
 
-Two format types for now:
+Five format types:
 
-- `"days"`: floating-point days until (positive) or since (negative) the
-  target, with `precision` decimal digits.
-- `"dhms"`: integer `D-HH:MM:SS` breakdown, sign-prefixed if negative.
+- `"days"` / `"hours"` / `"minutes"` / `"seconds"`: all the same shape --
+  a floating-point count of that unit until (positive) or since (negative)
+  the target, with `precision` decimal digits. Implemented as one family
+  in `countdownfmt.py` (a dict of unit-name -> seconds-per-unit), not four
+  separate cases -- `"days"` was the original/only one of these; the other
+  three are the identical formula with a different divisor.
+- `"dhms"`: integer `D-HH:MM:SS` breakdown, sign-prefixed if negative. Its
+  own case, not part of the unit family above (no `precision` field, fixed
+  breakdown across all four units at once).
 
 A format entry may also set `"absolute_value": true`, which runs the
 underlying (signed) time delta through `abs()` before formatting -- for
-either type. Useful for an always-in-the-past target where the sign is
-just noise, e.g. a birthday: `before_text: "You are"`, `after_text: "days
-old"`, `absolute_value: true` reads as "You are 10957.83 days old" instead
-of "You are -10957.83 days old".
+any of the five types. Useful for an always-in-the-past target where the
+sign is just noise, e.g. a birthday: `before_text: "You are"`, `after_text:
+"days old"`, `absolute_value: true` reads as "You are 10957.83 days old"
+instead of "You are -10957.83 days old".
+
+A format entry may also set `"commas": true` (only meaningful for the
+`"days"`/`"hours"`/`"minutes"`/`"seconds"` family, not `"dhms"`), which
+inserts thousands-separator commas into the integer part of the displayed
+number, e.g. `1,234,567.90` instead of `1234567.90` -- the sign (if any)
+stays outside the grouping. Implemented as a small hand-rolled
+`_add_commas()` in `countdownfmt.py`, not the standard `{:,}` format spec:
+confirmed empirically that MicroPython's f-strings/`str.format()` silently
+*ignore* the `,` grouping flag on this device (`f'{1234567.9:,.2f}'`
+produces `'1234567.90'`, not `'1,234,567.90'` -- no error, just no commas),
+so relying on it wasn't an option.
 
 Display update cadence (how often the value is recalculated/redrawn) is
 **derived from the format**, not separately configured:
 
 - `"dhms"` updates every 1 second (its finest unit).
-- `"days"` with precision P updates every `10^-P` days converted to
-  seconds (e.g. precision=2 -> ~864s, precision=4 -> ~8.6s).
+- `"days"`/`"hours"`/`"minutes"`/`"seconds"` with precision P update every
+  `10^-P` units-of-that-type converted to seconds (e.g. `days` precision=2
+  -> ~864s, `seconds` precision=0 -> 1s, `seconds` precision=3 -> hits the
+  floor below rather than 0.001s).
 - Floor of 0.1s (a tenth of a second) regardless of the derived value --
   below this is just for visual smoothness, not meaningful accuracy (see
   "Clock accuracy" below).
@@ -291,6 +310,20 @@ Display update cadence (how often the value is recalculated/redrawn) is
   display precision. `days` format precision beyond what ~1 second of
   accuracy can support is intentionally left uncapped -- it's fine for it
   to "just look cool" at high precision rather than be meaningfully exact.
+- Separately from clock accuracy: this MicroPython build uses **32-bit**
+  floats, not 64-bit doubles (confirmed empirically -- `1.1 + 2.2` gives
+  `3.3000002`, not CPython's usual `3.3000000000000003`). `target_epoch`/
+  `now_epoch` themselves are always exact ints (from
+  `isotime.parse_iso8601()`/`time.time()`), so `delta_seconds` is always
+  computed as exact integer subtraction regardless of magnitude -- the
+  float32-ness only bites during the unit-family's `delta_seconds /
+  unit_seconds` division. For a large enough delta at a high enough
+  `precision`, this can measurably shift the last displayed digit (found
+  via a ~2 billion second delta at `precision=6`: float32 gave
+  `23148.148000`, the mathematically correct value is `23148.148160`) --
+  in the same spirit as the point above, already-uncapped `precision`
+  values are cosmetic beyond what the platform can actually back up
+  either way, so this wasn't treated as something to fix.
 
 ## Data lifecycle
 

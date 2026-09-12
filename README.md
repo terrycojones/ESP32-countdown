@@ -314,9 +314,10 @@ Each entry in a `formats` list:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | `"days"` or `"dhms"` | **yes** | `"days"`: floating-point days remaining (or elapsed, if past). `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
-| `precision` | integer | only for `"days"` | Decimal digits shown — also determines how often the value is recalculated, see below. |
-| `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (either type) — for an always-in-the-past target where the sign is just noise, e.g. `before_text: "You are"`, `after_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
+| `type` | `"days"`, `"hours"`, `"minutes"`, `"seconds"`, or `"dhms"` | **yes** | The first four: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit. `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
+| `precision` | integer | only for `"days"`/`"hours"`/`"minutes"`/`"seconds"` | Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) `"dhms"`. |
+| `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (any `type`) — for an always-in-the-past target where the sign is just noise, e.g. `before_text: "You are"`, `after_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
+| `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
 | `before_text` / `after_text` | string | no | Text above/below the value. Omitting a field entirely and setting it to `""` are equivalent — either way, its space is given entirely to the value, making it bigger. |
 | `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides `defaults` for this specific format. |
 | `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides `defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). No item-level tier — set it on each of an item's formats individually if needed. |
@@ -326,9 +327,10 @@ Each entry in a `formats` list:
 Notes:
 
 - **Update cadence isn't configured directly** — it's derived from the
-  format: `"dhms"` recalculates every second; `"days"` recalculates
-  every `10^-precision` days converted to seconds (e.g. `precision: 2`
-  → ~14 minutes), with a 0.1-second floor.
+  format: `"dhms"` recalculates every second; `"days"`/`"hours"`/
+  `"minutes"`/`"seconds"` recalculate every `10^-precision` of that unit
+  converted to seconds (e.g. `days` at `precision: 2` → ~14 minutes;
+  `seconds` at `precision: 0` → every 1s), with a 0.1-second floor.
 - **BOOT button**: a **short** press advances the *currently displayed*
   item to its next `formats` entry (wrapping around). Each item
   remembers its own chosen format independently as items rotate —
@@ -677,6 +679,14 @@ reference points (`2000-01-01` → `0`, `1970-01-01` → `-946684800`) and
 the original failing 1963 date, now covered by a permanent regression
 test in `tests/test_logic.py`.
 
+### This device's floats are 32-bit, not 64-bit
+
+Confirmed empirically while adding the `commas` format option: `1.1 + 2.2` gives `3.3000002` here, not CPython's usual `3.3000000000000003` — the fingerprint of single-precision (32-bit) floats, not doubles. Two consequences, both already-known limitations rather than new bugs:
+
+First, and directly relevant to `commas`: MicroPython's f-strings/`str.format()` silently *ignore* the `,` thousands-separator flag on this build — `f'{1234567.9:,.2f}'` produces `'1234567.90'`, no comma, and no error either. So `commas` is implemented by hand (`countdownfmt._add_commas()`, plain string manipulation on the already-formatted number), not via the standard format spec.
+
+Second: for a large enough delta at a high enough `precision`, float32's ~7 significant decimal digits can measurably shift the last displayed digit of a `"days"`/`"hours"`/`"minutes"`/`"seconds"` value — found by comparing a ~2 billion second delta at `precision=6` against the mathematically correct value: float32 gives `23148.148000`, the true value is `23148.148160`. `target_epoch`/`now_epoch` are always exact ints (from `isotime.py`/`time.time()`), so this only affects the final unit conversion, not the underlying delta itself — and per "Clock accuracy" in `DESIGN.md`, uncapped high-`precision` values were already treated as cosmetic ("look cool") rather than meaningfully exact, so this compounds an existing acknowledged limitation rather than introducing a new one.
+
 ### Onboard RGB LED needs R/G swapped
 
 The onboard addressable RGB LED (GPIO8) is driven with MicroPython's built-in `neopixel` module, which already compensates internally for the WS2812 family's usual GRB wire order — so a normal `NeoPixel[0] = (r, g, b)` call is expected to just work. It doesn't, on this board: calling it with `(50, 0, 0)` (intending red) showed **green**, and `(0, 50, 0)` showed **red** — the blue slot (third position) was unaffected and worked correctly first try. Confirmed by testing all three channels independently, then re-confirmed through the actual `led.py` helper API (not just the raw swapped calls) cycling red → green → blue → off.
@@ -747,6 +757,12 @@ to break it down by file.
       confirmed working end-to-end (fixed color, multi-color loop, and
       the long-press toggle)
 - [x] Full countdown app design written up (see `DESIGN.md`)
+- [x] `"hours"`/`"minutes"`/`"seconds"` format types added alongside
+      `"days"` (same unit-family implementation in `countdownfmt.py`),
+      confirmed working end-to-end on real hardware
+- [x] `commas` format option (hand-rolled thousands separators — this
+      device's f-strings silently ignore the standard `,` flag),
+      confirmed working end-to-end on real hardware
 
 Deferred (see `DESIGN.md` "Not yet designed / deferred"): an on-screen
 error indicator for Wi-Fi/fetch failures, and a BOOT-triggered manual

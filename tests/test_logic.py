@@ -75,6 +75,59 @@ print("update_interval days p2:", countdownfmt.update_interval_seconds({"type": 
 print("update_interval days p6 (floor test):", countdownfmt.update_interval_seconds({"type": "days", "precision": 6}))
 assert countdownfmt.update_interval_seconds({"type": "dhms"}) == 1.0
 assert countdownfmt.update_interval_seconds({"type": "days", "precision": 6}) == countdownfmt.MIN_UPDATE_INTERVAL
+
+# -- "seconds"/"minutes"/"hours": same shape as "days", different divisor --
+future2 = now + 3661  # 1h 1m 1s
+v = countdownfmt.format_value(future2, now, {"type": "seconds", "precision": 0})
+assert v == "3661", v
+v = countdownfmt.format_value(future2, now, {"type": "minutes", "precision": 2})
+assert v == "61.02", v
+v = countdownfmt.format_value(future2, now, {"type": "hours", "precision": 3})
+assert v == "1.017", v
+
+past2 = now - 3661
+assert countdownfmt.format_value(past2, now, {"type": "seconds", "precision": 0}) == "-3661"
+assert (
+    countdownfmt.format_value(past2, now, {"type": "seconds", "precision": 0, "absolute_value": True}) == "3661"
+)
+
+assert countdownfmt.update_interval_seconds({"type": "seconds", "precision": 0}) == 1.0
+assert countdownfmt.update_interval_seconds({"type": "minutes", "precision": 0}) == 60.0
+assert countdownfmt.update_interval_seconds({"type": "hours", "precision": 0}) == 3600.0
+assert (
+    countdownfmt.update_interval_seconds({"type": "seconds", "precision": 3}) == countdownfmt.MIN_UPDATE_INTERVAL
+), "should hit the 0.1s floor, not go faster"
+
+# -- "commas" -- MicroPython's f-strings/str.format() silently ignore the
+# ',' grouping flag (confirmed empirically), so this is hand-rolled.
+#
+# Delta constructed as an exact integer number of seconds (1234567 days,
+# 77760 seconds = exactly 1234567.90 days), added/subtracted from `now` as
+# plain int arithmetic -- matching how the real app always computes deltas
+# (isotime.parse_iso8601()/time.time() are both exact ints). Deliberately
+# NOT built as `now + 86400 * 1234567.9`: that forces a large-magnitude
+# float addition against a large int, and this device's floats are 32-bit
+# (confirmed empirically: 1.1 + 2.2 == 3.3000002, not CPython's usual
+# 3.3000000000000003) -- precision enough is lost that way to actually
+# change the last displayed digit for a big enough delta.
+big_delta = 1234567 * 86400 + 77760
+big_future = now + big_delta
+assert countdownfmt.format_value(big_future, now, {"type": "days", "precision": 2}) == "1234567.90"
+assert (
+    countdownfmt.format_value(big_future, now, {"type": "days", "precision": 2, "commas": True})
+    == "1,234,567.90"
+)
+assert countdownfmt.format_value(now - big_delta, now, {"type": "days", "precision": 2, "commas": True}) == (
+    "-1,234,567.90"
+), "sign stays outside the grouping"
+assert countdownfmt.format_value(now + 425, now, {"type": "seconds", "precision": 1, "commas": True}) == "425.0", (
+    "no comma needed/added for a value under 1000"
+)
+assert countdownfmt.format_value(now + 3000, now, {"type": "seconds", "precision": 0, "commas": True}) == "3,000", (
+    "exact 4-digit boundary"
+)
+print("commas OK")
+
 print("countdownfmt OK")
 
 # -- countdown_data.split_auth --
@@ -115,6 +168,8 @@ assert countdown_data.validate({"items": [_item(formats=None)]}) is False, "form
 assert countdown_data.validate({"items": [_item(formats=[{"type": "not-a-real-type"}])]}) is False, (
     "unknown format type"
 )
+for known_type in ("days", "hours", "minutes", "seconds", "dhms"):
+    assert countdown_data.validate({"items": [_item(formats=[{"type": known_type}])]}) is True, known_type
 assert countdown_data.validate({"items": [_item(display_seconds="5")]}) is False, (
     "display_seconds must be numeric, not a string"
 )
