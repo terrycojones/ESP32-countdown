@@ -62,6 +62,56 @@ def test_error_message_includes_target_for_context():
         upload_json.validate_countdown_json(data)
 
 
+# -- 'skip': validate_countdown_json refuses to upload a config that would
+# leave the device with nothing to display -- see DESIGN.md "skip".
+
+
+def test_format_skip_true_raises():
+    data = {"items": [_item(formats=[{"type": "dhms", "skip": True}])]}
+    with pytest.raises(upload_json.ValidationError, match="skip"):
+        upload_json.validate_countdown_json(data)
+
+
+def test_item_skip_true_raises():
+    data = {"items": [_item(skip=True)]}
+    with pytest.raises(upload_json.ValidationError, match="skip"):
+        upload_json.validate_countdown_json(data)
+
+
+def test_defaults_skip_true_raises():
+    data = {"defaults": {"skip": True}, "items": [_item()]}
+    with pytest.raises(upload_json.ValidationError, match="skip"):
+        upload_json.validate_countdown_json(data)
+
+
+def test_format_skip_overrides_item_skip_back_to_visible():
+    data = {"items": [_item(skip=True, formats=[{"type": "dhms", "skip": False}])]}
+    assert upload_json.validate_countdown_json(data) is not None  # no meta.url -> warning, not an error
+
+
+def test_one_of_two_items_skipped_is_still_visible():
+    data = {"items": [_item(skip=True), _item()]}
+    assert upload_json.validate_countdown_json(data) is not None
+
+
+@pytest.mark.parametrize(
+    ("fmt_overrides", "item_overrides", "defaults", "expected"),
+    [
+        ({}, {}, {}, True),
+        ({"skip": True}, {}, {}, False),
+        ({}, {"skip": True}, {}, False),
+        ({}, {}, {"skip": True}, False),
+        ({"skip": False}, {"skip": True}, {}, True),
+        ({}, {"skip": False}, {"skip": True}, True),
+    ],
+)
+def test_resolved_skip_precedence(fmt_overrides, item_overrides, defaults, expected):
+    fmt = dict({"type": "dhms"}, **fmt_overrides)
+    item = _item(formats=[fmt], **item_overrides)
+    data = {"defaults": defaults, "items": [item]}
+    assert upload_json._has_visible_content(data) is expected
+
+
 # -- load_config: JSON and TOML input --
 
 

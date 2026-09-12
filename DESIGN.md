@@ -63,30 +63,95 @@ Notes:
   the device reconnects to Wi-Fi, re-syncs the clock via NTP, and re-fetches
   the JSON.
 - `layout` is global (applies to all items, not overridable per-item).
-- `defaults` gives fallback colors for any field a format entry omits.
-  Includes `background`, so all four color fields live at the same level.
-- `brightness` (0.0-1.0, backlight PWM duty) follows the identical
-  two-tier pattern: a format-level value overrides `defaults.brightness`,
-  which falls back to a hardcoded default (`display.DEFAULT_BRIGHTNESS`,
-  currently 0.5) if neither is set. No item-level tier, matching colors --
-  set it per-format directly if a specific item needs it. Unlike the color
-  fields, resolution uses `is None` checks rather than a truthy-based `or`
-  fallback, since `0.0` (backlight fully off) is a legitimate value that a
-  truthy check would wrongly treat as "not set". See
-  `display.resolve_brightness()`. Applied once per redraw (i.e. whenever
-  the currently-shown value is recalculated), so it takes effect
-  immediately on an item/format change -- BOOT-triggered format switches
-  included.
+- `defaults` gives fallback values for any setting a format entry (or its
+  parent item) omits. Includes `background`, so all four color fields live
+  at the same level.
 - `items` must contain at least one entry. Each item must have at least one
   entry in its own `formats` list.
-- Within a format entry, `before_text`/`after_text` may be empty/omitted --
-  the vertical space that text would have used is instead given entirely to
-  the countdown value's box (not split/redistributed elsewhere).
+- Every setting a format entry can have (`type`, `precision`,
+  `absolute_value`, `commas`, `before_text`, `after_text`, the four color
+  fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`) may
+  *also* be set directly on the parent `item` -- see "Setting resolution"
+  below. This is for formats that mostly share the same look/text and
+  differ only in, say, `type`/`precision`: put the shared settings on the
+  item once instead of repeating them on every one of its formats.
+- `before_text`/`after_text` may be empty/omitted -- the vertical space
+  that text would have used is instead given entirely to the countdown
+  value's box (not split/redistributed elsewhere). An empty string is a
+  real, final value (see "Setting resolution"): a format can set
+  `before_text: ""` to explicitly suppress an item-level `before_text` it
+  would otherwise inherit.
 - Past events (target date already passed) show a negative value with a
   leading `-`, for both `days` and `dhms` format types. No special
   "T+"-style wording.
 - A fetched/loaded JSON that's malformed or has zero items is rejected; the
   previously cached copy is kept instead.
+
+## Setting resolution
+
+Every format-level setting resolves through the same three-tier chain:
+**format entry -> parent item -> `defaults`** -- the first of those three
+that actually *sets* the key wins, else a hardcoded Python-level default
+(e.g. `display.DEFAULT_BRIGHTNESS`, or `""` for `before_text`/`after_text`).
+One shared helper, `settings.resolve(key, fmt, item, defaults, fallback)`,
+implements this and is used everywhere a setting is looked up
+(`countdownfmt.py`, `display.resolve_brightness()`,
+`ledshow.resolve_led_spec()`, `render.py`'s color/text lookups,
+`countdown_data.validate()`'s `type` check).
+
+Resolution is checked by **presence** (`key in source`), not truthiness:
+an explicit falsy value at whichever tier sets it first -- `0.0` brightness,
+an empty `led_colors` list, an empty `before_text`/`after_text` string --
+is a real, final answer and does **not** fall through to a later tier. This
+generalizes a rule the codebase already had for `brightness` (`0.0` is
+"fully off", not "unset") to every setting: it means, for example, that an
+item can set a shared `led_colors` for its formats' light show, and one
+particular format can set `led_colors: []` to opt that one format out
+entirely, rather than inheriting the item's list.
+
+The item level exists so formats that mostly share the same look/text
+don't have to repeat every color/brightness/text setting on each one --
+put the shared settings on the item once, and only the settings that
+actually differ (typically `type`/`precision`) on the individual formats.
+`type`, `precision`, `absolute_value`, and `commas` can technically be set
+at the item or `defaults` level too (the resolution chain doesn't
+special-case which keys are "structural" vs. "format" settings), though in
+practice `type` usually still varies per format -- that's the whole point
+of an item having several formats to rotate through.
+
+## `skip`
+
+A boolean `skip` setting lets a config quickly drop an individual format,
+or an entire item, without deleting it -- handy for temporarily disabling
+something without losing the JSON/TOML for it. It's not a rendering
+setting like the ones above, but it resolves through the *exact same*
+format -> item -> defaults chain (`settings.resolve()`), with no special
+casing: `countdown_data.apply_skip()` drops every format whose resolved
+`skip` is true, then drops any item left with zero formats (whether
+because each of its formats was individually marked `skip`, or because
+the item itself was).
+
+Setting `skip` on an item is not a separate "drop the whole item"
+mechanism -- it works purely because that's the value each of the item's
+formats inherits by default. In the ordinary case (no format overrides
+it) every format ends up skipped, so the item ends up with none and is
+dropped -- which is what "skip this item" means in practice. A specific
+format *can* set `skip: false` to opt itself back in despite an
+item-level `skip: true`, since resolution always lets a more specific
+tier override a less specific one. This is a deliberate consequence of
+reusing the generic resolution mechanism rather than a special-cased
+"item skip" flag, and gives finer control for the rare case that wants it.
+
+`apply_skip()` runs inside `countdown_data.validate()` before its usual
+"at least one item, each with at least one format" checks, so a config
+that skips *everything* fails validation exactly like an empty `items`
+list would -- both `load_cache()` and `refresh()` apply it, so this holds
+whether the data arrived via a manual upload or a periodic refetch.
+`upload_json.py` also checks this at upload time (a small standalone
+reimplementation of the same `skip` resolution, not an import of
+device/lib, which targets MicroPython) so an "everything skipped" config
+is caught before it's ever sent to the device, rather than only
+discovered afterward as the device rejecting it and showing "No data".
 
 ## Display orientation
 
@@ -205,11 +270,10 @@ Display update cadence (how often the value is recalculated/redrawn) is
   match `neopixel`'s built-in GRB assumption -- confirmed empirically
   (see README.md "Onboard RGB LED needs R/G swapped") -- `led.py`'s
   `set_color(np, r, g, b)` swaps R and G before writing to compensate.
-- A format may set `led_colors` (array of 1+ `"#RRGGBB"` strings) and
-  `led_cycle_seconds` (float, default 4.0), both with a `defaults`-level
-  fallback -- same two-tier pattern as the color fields and
-  `brightness`, and the same reason for no item-level tier (set it per
-  format if a specific item needs it).
+- A format (or its parent item) may set `led_colors` (array of 1+
+  `"#RRGGBB"` strings) and `led_cycle_seconds` (float, default 4.0) --
+  same fmt -> item -> defaults resolution as every other setting, see
+  "Setting resolution".
 - One color -> LED fixed at that color while the light show is on and
   this format is active. Two or more -> the LED smoothly loops through
   all of them in a closed cycle (color N-1 blends back into color 0),

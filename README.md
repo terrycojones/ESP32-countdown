@@ -281,9 +281,9 @@ Top level:
 | `meta.upload_command` | string | no | Host-side-only, not read by the device: a shell command template (`{path}` → local JSON path) that `upload_json.py --upload` runs to push the JSON to `meta.url`'s server. See "Uploading your countdown data". |
 | `layout.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no, default 0 | Outer margins of the usable content area. |
 | `layout.gap_before_value` / `gap_value_after` | number (px) | no, default 0 | Vertical gap around the value box, applied only when the adjacent text is non-empty. |
-| `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any format that doesn't specify its own. |
-| `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
-| `defaults.led_colors` / `led_cycle_seconds` | array of `"#RRGGBB"` / number | no | Fallback LED light-show colors/cycle time for any format that doesn't specify its own — see below. |
+| `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below. |
+| `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any item/format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
+| `defaults.led_colors` / `led_cycle_seconds` | array of `"#RRGGBB"` / number | no | Fallback LED light-show colors/cycle time for any item/format that doesn't specify its own — see below. |
 | `items` | array | **yes**, ≥1 | The countdown events to cycle through. |
 
 Each entry in `items`:
@@ -293,6 +293,7 @@ Each entry in `items`:
 | `target` | ISO-8601 string | **yes** | Event date/time with a UTC offset (`Z`, or `+HH:MM`/`-HH:MM`) — e.g. `"2026-12-25T00:00:00Z"`. |
 | `display_seconds` | number | **yes** | How long this item stays on screen before rotating to the next item. |
 | `formats` | array | **yes**, ≥1 | Different ways to display this item's countdown; BOOT cycles through these (see below). |
+| *any format-level field* | — | no | An item may also set any of the fields listed in the `formats` table below (`type`, `precision`, colors, `brightness`, `led_colors`, `skip`, …) directly on itself — shared across all of that item's formats unless a specific format overrides it. See "Setting resolution" below. |
 
 **Setting a timezone on `target`:** add a standard ISO-8601 offset
 right after the time — `±HH:MM`, or `Z` for UTC:
@@ -319,11 +320,39 @@ Each entry in a `formats` list:
 | `precision` | integer | only for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` | Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) `"dhms"`. |
 | `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (any `type`) — for an always-in-the-past target where the sign is just noise, e.g. `before_text: "You are"`, `after_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
 | `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
-| `before_text` / `after_text` | string | no | Text above/below the value. Omitting a field entirely and setting it to `""` are equivalent — either way, its space is given entirely to the value, making it bigger. |
-| `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides `defaults` for this specific format. |
-| `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides `defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). No item-level tier — set it on each of an item's formats individually if needed. |
-| `led_colors` | array of `"#RRGGBB"` strings | no | Overrides `defaults.led_colors`. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No `led_colors` (here or in `defaults`) → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down. |
-| `led_cycle_seconds` | number | no, default `4.0` | Time for one full loop through `led_colors` (only meaningful with 2+ colors) — overrides `defaults.led_cycle_seconds`. |
+| `before_text` / `after_text` | string | no | Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/`defaults`; setting it to `""` explicitly is a real, final value that opts back out of an inherited one. |
+| `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides the item's/`defaults`' color for this specific format. |
+| `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides the item's/`defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). |
+| `led_colors` | array of `"#RRGGBB"` strings | no | Overrides the item's/`defaults.led_colors`. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No `led_colors` anywhere in the chain → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down. |
+| `led_cycle_seconds` | number | no, default `4.0` | Time for one full loop through `led_colors` (only meaningful with 2+ colors) — overrides the item's/`defaults.led_cycle_seconds`. |
+| `skip` | boolean | no, default `false` | If `true`, drops this format entirely — it's removed before rotation/display ever sees it, as if it weren't in the config at all. Set on an item instead, it makes *every* format inherit `skip: true` by default, which in the ordinary case drops the whole item (it ends up with zero formats) — a specific format can still set `skip: false` to opt itself back in. See "Skipping items/formats" below. |
+
+**Setting resolution:** every field in the table above resolves through
+the same three-tier chain: the format entry itself, then its parent item,
+then `defaults` — the first of those three that actually sets the field
+wins, else a hardcoded built-in default. This is checked by *presence*,
+not truthiness, so an explicit falsy value (`brightness: 0.0`,
+`led_colors: []`, `before_text: ""`) at whichever tier sets it first is a
+real, final answer — it does not fall through to a later tier. Practical
+use: put shared colors/text/brightness on an item once, and only the
+setting that actually varies (typically `type`/`precision`) on each of its
+individual formats; a format can still override any inherited setting, or
+explicitly opt back out with a falsy value of its own. See DESIGN.md
+"Setting resolution" for the full rationale.
+
+**Skipping items/formats:** `skip` uses this exact same resolution chain
+(no special-casing) — a format with a resolved `skip` of `true` is
+dropped from the config entirely before rotation/display ever runs,
+useful for temporarily disabling something without deleting it. An item
+that ends up with zero formats after skip-filtering (whether from its
+own `skip: true`, or every one of its formats being individually
+skipped) is itself dropped. Both `upload_json.py` and the device
+(`countdown_data.validate()`, checked on every manual upload *and* every
+periodic refetch) refuse a config that would leave nothing to display —
+the upload script catches it before anything is sent to the device; the
+device falls back to its previous cache (or shows "No data" if there
+isn't one) if it ever receives one anyway (e.g. hand-edited directly on
+the board).
 
 Notes:
 
@@ -765,6 +794,18 @@ to break it down by file.
 - [x] `commas` format option (hand-rolled thousands separators — this
       device's f-strings silently ignore the standard `,` flag),
       confirmed working end-to-end on real hardware
+- [x] Item-level setting tier added: any format-level setting (colors,
+      `brightness`, `led_colors`/`led_cycle_seconds`, `before_text`/
+      `after_text`, `type`/`precision`/`absolute_value`/`commas`) can now
+      also be set on the parent item, shared across all its formats
+      (fmt -> item -> defaults resolution, `device/lib/settings.py`),
+      confirmed working end-to-end on real hardware
+- [x] `skip` boolean added — drops an individual format, or (via
+      inheritance) an entire item, using the same setting-resolution
+      chain (`countdown_data.apply_skip()`); a config that would skip
+      everything is rejected both by `upload_json.py` at upload time and
+      by the device's own `validate()`, confirmed working end-to-end on
+      real hardware
 
 Deferred (see `DESIGN.md` "Not yet designed / deferred"): an on-screen
 error indicator for Wi-Fi/fetch failures, and a BOOT-triggered manual

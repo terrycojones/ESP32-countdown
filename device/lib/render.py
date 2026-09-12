@@ -1,6 +1,7 @@
 # Renders one countdown item's currently-selected format into an in-memory
 # RGB565 framebuffer. See DESIGN.md "Rendering".
 import colors
+import settings
 import text
 
 # Fixed height (px) given to the before/after text boxes when present --
@@ -13,8 +14,8 @@ FALLBACK_BG = "#000000"
 FALLBACK_COLOR = "#ffffff"
 
 
-def _resolve_color(fmt, key, defaults, fallback):
-    hexval = fmt.get(key) or defaults.get(key) or fallback
+def _resolve_color(key, fmt, item, defaults, fallback):
+    hexval = settings.resolve(key, fmt, item, defaults, fallback)
     # byteswap16: see colors.py -- framebuf stores colors little-endian, so
     # pre-swapping here (once per color per frame) means blit_rgb565 needs
     # no per-pixel fix-up at all.
@@ -31,9 +32,12 @@ def _draw_centered(fb, s, box_x, box_y, box_w, box_h, color):
     text.draw_scaled_text(fb, s, x, y, scale, color)
 
 
-def render_item(fb, width, height, layout, defaults, fmt, value_str):
+def render_item(fb, width, height, layout, item, defaults, fmt, value_str):
     """Draws into RGB565 framebuf `fb` (width x height): background fill,
-    before_text (if any), the countdown value, after_text (if any)."""
+    before_text (if any), the countdown value, after_text (if any).
+    Per-format settings (colors, before_text/after_text) resolve through
+    the fmt -> item -> defaults chain -- see DESIGN.md "Setting
+    resolution"."""
     margin_top = layout.get("margin_top", 0)
     margin_bottom = layout.get("margin_bottom", 0)
     margin_left = layout.get("margin_left", 0)
@@ -41,10 +45,10 @@ def render_item(fb, width, height, layout, defaults, fmt, value_str):
     gap_before_value = layout.get("gap_before_value", 0)
     gap_value_after = layout.get("gap_value_after", 0)
 
-    bg = _resolve_color(fmt, "background", defaults, FALLBACK_BG)
-    before_color = _resolve_color(fmt, "before_color", defaults, FALLBACK_COLOR)
-    value_color = _resolve_color(fmt, "value_color", defaults, FALLBACK_COLOR)
-    after_color = _resolve_color(fmt, "after_color", defaults, FALLBACK_COLOR)
+    bg = _resolve_color("background", fmt, item, defaults, FALLBACK_BG)
+    before_color = _resolve_color("before_color", fmt, item, defaults, FALLBACK_COLOR)
+    value_color = _resolve_color("value_color", fmt, item, defaults, FALLBACK_COLOR)
+    after_color = _resolve_color("after_color", fmt, item, defaults, FALLBACK_COLOR)
 
     fb.fill(bg)
 
@@ -53,8 +57,8 @@ def render_item(fb, width, height, layout, defaults, fmt, value_str):
     content_top = margin_top
     content_bottom = height - margin_bottom
 
-    before_text = fmt.get("before_text") or ""
-    after_text = fmt.get("after_text") or ""
+    before_text = settings.resolve("before_text", fmt, item, defaults, "")
+    after_text = settings.resolve("after_text", fmt, item, defaults, "")
 
     before_h = LABEL_HEIGHT if before_text else 0
     after_h = LABEL_HEIGHT if after_text else 0

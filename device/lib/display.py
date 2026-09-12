@@ -2,6 +2,7 @@
 # ESP32-C6-LCD-1.47. All parameters here were found empirically -- see
 # README.md "Display bring-up findings" for how and why.
 import machine
+import settings
 import st7789py
 
 SCK_PIN = 7
@@ -74,18 +75,12 @@ def set_brightness(backlight_pwm, brightness):
     backlight_pwm.duty_u16(int(brightness * 65535))
 
 
-def resolve_brightness(fmt, defaults):
-    """Two-tier fallback exactly like the color fields (format overrides
-    `defaults`) -- see DESIGN.md. Uses `is None` checks rather than the
-    color fields' truthy-based `or` fallback, since 0.0 (backlight fully
-    off) is a legitimate value that a truthy check would wrongly skip
-    past."""
-    value = fmt.get("brightness")
-    if value is None:
-        value = (defaults or {}).get("brightness")
-    if value is None:
-        value = DEFAULT_BRIGHTNESS
-    return value
+def resolve_brightness(fmt, item, defaults):
+    """Three-tier fallback (format overrides item overrides defaults) via
+    settings.resolve() -- see DESIGN.md "Setting resolution". Checked by
+    presence, not truthiness, since 0.0 (backlight fully off) is a
+    legitimate value that a truthy check would wrongly skip past."""
+    return settings.resolve("brightness", fmt, item, defaults, DEFAULT_BRIGHTNESS)
 
 
 def blit_rgb565(display, buf, x, y, w, h):

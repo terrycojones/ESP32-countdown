@@ -19,6 +19,7 @@ import countdown_data
 import countdownfmt
 import isotime
 import ledshow
+import settings
 
 print("hex_to_rgb565('#ff0000') =", hex(colors.hex_to_rgb565("#ff0000")))
 assert colors.hex_to_rgb565("#ff0000") == 0xF800
@@ -163,6 +164,43 @@ assert int(v1) - int(v0) == 1, (v0, v1)
 assert int(v2) - int(v1) == 1, (v1, v2)
 print("huge delta regression OK")
 
+# -- settings.resolve: the generic fmt -> item -> defaults chain --
+assert settings.resolve("x", {}, {}, {}) is None, "nothing sets it anywhere -> None fallback"
+assert settings.resolve("x", {}, {}, {}, "fallback") == "fallback"
+assert settings.resolve("x", {}, {}, {"x": 1}) == 1, "defaults-only"
+assert settings.resolve("x", {}, {"x": 2}, {"x": 1}) == 2, "item overrides defaults"
+assert settings.resolve("x", {"x": 3}, {"x": 2}, {"x": 1}) == 3, "format overrides item overrides defaults"
+assert settings.resolve("x", {"x": 0.0}, {}, {"x": 1}) == 0.0, (
+    "an explicit falsy value at a tier is final, not 'unset' -- must not fall through"
+)
+assert settings.resolve("x", {}, {"x": ""}, {"x": "y"}) == "", (
+    "same for an explicit empty string at the item tier"
+)
+print("settings.resolve OK")
+
+# -- countdownfmt: "type"/"precision"/"absolute_value"/"commas" also
+# resolve through item/defaults, not just fmt (see DESIGN.md "Setting
+# resolution") --
+assert countdownfmt.format_value(now + 3, now, {}, {"type": "seconds"}, {}) == "3", (
+    "type inherited from item when the format itself doesn't set one"
+)
+assert countdownfmt.format_value(now + 3, now, {}, {}, {"type": "seconds"}) == "3", (
+    "type inherited from defaults when neither format nor item set one"
+)
+assert countdownfmt.format_value(now + 3661, now, {"type": "hours"}, {"precision": 3}, {"precision": 0}) == (
+    "1.017"
+), "precision inherited from item, overriding defaults, format itself only sets type"
+assert countdownfmt.format_value(now - 5, now, {"type": "seconds"}, {"absolute_value": True}, {}) == "5", (
+    "absolute_value inherited from item"
+)
+assert countdownfmt.format_value(now + 3000, now, {"type": "seconds"}, {}, {"commas": True}) == "3,000", (
+    "commas inherited from defaults"
+)
+assert countdownfmt.update_interval_seconds({}, {"type": "hours", "precision": 0}, {}) == 3600.0, (
+    "update_interval_seconds also resolves type/precision through item/defaults"
+)
+print("countdownfmt item/defaults resolution OK")
+
 print("countdownfmt OK")
 
 # -- countdown_data.split_auth --
@@ -208,19 +246,81 @@ for known_type in ("years", "days", "hours", "minutes", "seconds", "dhms"):
 assert countdown_data.validate({"items": [_item(display_seconds="5")]}) is False, (
     "display_seconds must be numeric, not a string"
 )
+assert countdown_data.validate({"items": [_item(type="dhms", formats=[{}])]}) is True, (
+    "type inherited from the item, format itself sets nothing"
+)
+assert countdown_data.validate({"defaults": {"type": "dhms"}, "items": [_item(formats=[{}])]}) is True, (
+    "type inherited from defaults, neither format nor item set one"
+)
+assert countdown_data.validate({"items": [_item(formats=[{}])]}) is False, (
+    "type not set anywhere at all -> invalid"
+)
 d = dict(VALID_ITEM)
 del d["display_seconds"]
 assert countdown_data.validate({"items": [d]}) is False, "missing display_seconds entirely"
 print("validate OK")
 
+# -- countdown_data.apply_skip / skip-aware validate --
+TWO_FORMAT_ITEM = {
+    "target": "2026-01-01T00:00:00Z",
+    "display_seconds": 5,
+    "formats": [{"type": "dhms"}, {"type": "years", "precision": 1}],
+}
+
+result = countdown_data.apply_skip({"items": [_item()]})
+assert len(result["items"][0]["formats"]) == 1, "no skip anywhere -> format kept unchanged"
+
+result = countdown_data.apply_skip({"items": [_item(formats=[{"type": "dhms", "skip": True}])]})
+assert result["items"] == [], "a format's own skip=true drops just that format -> item left with none -> dropped"
+
+result = countdown_data.apply_skip({"items": [dict(TWO_FORMAT_ITEM, formats=[
+    {"type": "dhms", "skip": True},
+    {"type": "years", "precision": 1},
+])]})
+assert len(result["items"]) == 1 and len(result["items"][0]["formats"]) == 1, (
+    "only the skipped format is dropped, its sibling format survives"
+)
+assert result["items"][0]["formats"][0]["type"] == "years"
+
+result = countdown_data.apply_skip({"items": [dict(TWO_FORMAT_ITEM, skip=True)]})
+assert result["items"] == [], (
+    "item-level skip=true makes every format inherit skip=true by default -> "
+    "all dropped -> item itself dropped"
+)
+
+result = countdown_data.apply_skip({"items": [dict(
+    TWO_FORMAT_ITEM, skip=True, formats=[
+        {"type": "dhms", "skip": False},
+        {"type": "years", "precision": 1},
+    ],
+)]})
+assert len(result["items"]) == 1 and len(result["items"][0]["formats"]) == 1, (
+    "a format can override an item-level skip=true back to false to opt itself back in"
+)
+assert result["items"][0]["formats"][0]["type"] == "dhms"
+
+result = countdown_data.apply_skip({"defaults": {"skip": True}, "items": [_item()]})
+assert result["items"] == [], "defaults-level skip=true also flows through, like any other setting"
+
+assert countdown_data.validate({"items": [_item(skip=True)]}) is False, (
+    "a fully-skipped item leaves zero items -- same 'nothing to display' failure as an empty items list"
+)
+assert countdown_data.validate(
+    {"items": [_item(), _item(skip=True)]}
+) is True, "one item skipped, one survives -> still valid"
+print("apply_skip / skip-aware validate OK")
+
 # -- display.resolve_brightness --
-assert display.resolve_brightness({}, {}) == display.DEFAULT_BRIGHTNESS, "no override -> hardcoded default"
-assert display.resolve_brightness({}, {"brightness": 0.3}) == 0.3, "defaults-level override"
-assert display.resolve_brightness({"brightness": 0.8}, {"brightness": 0.3}) == 0.8, "format overrides defaults"
-assert display.resolve_brightness({"brightness": 0.0}, {"brightness": 0.3}) == 0.0, (
+assert display.resolve_brightness({}, {}, {}) == display.DEFAULT_BRIGHTNESS, "no override -> hardcoded default"
+assert display.resolve_brightness({}, {}, {"brightness": 0.3}) == 0.3, "defaults-level override"
+assert display.resolve_brightness({}, {"brightness": 0.6}, {"brightness": 0.3}) == 0.6, "item overrides defaults"
+assert display.resolve_brightness({"brightness": 0.8}, {"brightness": 0.6}, {"brightness": 0.3}) == 0.8, (
+    "format overrides item overrides defaults"
+)
+assert display.resolve_brightness({"brightness": 0.0}, {}, {"brightness": 0.3}) == 0.0, (
     "0.0 is a real value, not 'unset' -- must not fall through to defaults"
 )
-assert display.resolve_brightness({}, {"brightness": 0.0}) == 0.0, (
+assert display.resolve_brightness({}, {}, {"brightness": 0.0}) == 0.0, (
     "0.0 at the defaults level is also real, not 'unset'"
 )
 print("resolve_brightness OK")
@@ -231,13 +331,20 @@ assert colors.hex_to_rgb8("ff8000") == (255, 128, 0)  # no leading '#' also work
 print("hex_to_rgb8 OK")
 
 # -- ledshow.resolve_led_spec --
-assert ledshow.resolve_led_spec({}, {}) == (None, None), "no led_colors anywhere -> no light show"
-c, cyc = ledshow.resolve_led_spec({"led_colors": ["#ff0000"]}, {})
+assert ledshow.resolve_led_spec({}, {}, {}) == (None, None), "no led_colors anywhere -> no light show"
+c, cyc = ledshow.resolve_led_spec({"led_colors": ["#ff0000"]}, {}, {})
 assert c == [(255, 0, 0)] and cyc == int(ledshow.DEFAULT_CYCLE_SECONDS * 1000), (c, cyc)
-c, cyc = ledshow.resolve_led_spec({}, {"led_colors": ["#00ff00"], "led_cycle_seconds": 2})
+c, cyc = ledshow.resolve_led_spec({}, {}, {"led_colors": ["#00ff00"], "led_cycle_seconds": 2})
 assert c == [(0, 255, 0)] and cyc == 2000, (c, cyc)
-c, cyc = ledshow.resolve_led_spec({"led_colors": ["#0000ff"]}, {"led_colors": ["#00ff00"]})
-assert c == [(0, 0, 255)], "format-level led_colors must override defaults"
+c, cyc = ledshow.resolve_led_spec({}, {"led_colors": ["#00ffff"], "led_cycle_seconds": 3}, {"led_colors": ["#00ff00"]})
+assert c == [(0, 255, 255)] and cyc == 3000, "item-level led_colors/led_cycle_seconds override defaults"
+c, cyc = ledshow.resolve_led_spec({"led_colors": ["#0000ff"]}, {"led_colors": ["#00ffff"]}, {"led_colors": ["#00ff00"]})
+assert c == [(0, 0, 255)], "format-level led_colors overrides item and defaults"
+c, cyc = ledshow.resolve_led_spec({"led_colors": []}, {}, {"led_colors": ["#00ff00"]})
+assert (c, cyc) == (None, None), (
+    "an explicit empty led_colors list at the format tier suppresses the light show, "
+    "does not fall through to defaults"
+)
 print("resolve_led_spec OK")
 
 # -- ledshow.current_color --

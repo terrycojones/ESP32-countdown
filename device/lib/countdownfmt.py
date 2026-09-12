@@ -1,6 +1,7 @@
 # Turns (target_epoch, now_epoch, format-spec) into the display string, and
 # derives how often a given format needs recalculating -- see DESIGN.md
 # "Value formats".
+import settings
 
 MIN_UPDATE_INTERVAL = 0.1  # seconds; below this is cosmetic only, see DESIGN.md
 
@@ -45,16 +46,23 @@ def _add_commas(s):
     return result + "." + frac_part if frac_part else result
 
 
-def format_value(target_epoch, now_epoch, fmt):
+def format_value(target_epoch, now_epoch, fmt, item=None, defaults=None):
+    """`item`/`defaults` extend the lookup for every format-level setting
+    below to the three-tier fmt -> item -> defaults chain -- see
+    DESIGN.md "Setting resolution". Both default to {} (no item/defaults
+    tier) so existing format-only callers keep working unchanged."""
+    item = item or {}
+    defaults = defaults or {}
+
     delta_seconds = target_epoch - now_epoch  # positive = future, negative = past
-    if fmt.get("absolute_value"):
+    if settings.resolve("absolute_value", fmt, item, defaults, False):
         # e.g. a birthday (always in the past): "You are XXX days old"
         # reads better than a negative number -- see DESIGN.md.
         delta_seconds = abs(delta_seconds)
-    ftype = fmt.get("type")
+    ftype = settings.resolve("type", fmt, item, defaults)
 
     if ftype in _UNIT_SECONDS:
-        precision = fmt.get("precision", 0)
+        precision = settings.resolve("precision", fmt, item, defaults, 0)
         unit_seconds = _UNIT_SECONDS[ftype]
         sign = "-" if delta_seconds < 0 else ""
         abs_delta = abs(int(delta_seconds))  # exact int, arbitrary size
@@ -83,7 +91,8 @@ def format_value(target_epoch, now_epoch, fmt):
             formatted = digits[:-precision] + "." + digits[-precision:]
 
         formatted = sign + formatted
-        return _add_commas(formatted) if fmt.get("commas") else formatted
+        commas = settings.resolve("commas", fmt, item, defaults, False)
+        return _add_commas(formatted) if commas else formatted
 
     if ftype == "dhms":
         sign = "-" if delta_seconds < 0 else ""
@@ -96,12 +105,14 @@ def format_value(target_epoch, now_epoch, fmt):
     raise ValueError("unknown format type: {}".format(ftype))
 
 
-def update_interval_seconds(fmt):
-    ftype = fmt.get("type")
+def update_interval_seconds(fmt, item=None, defaults=None):
+    item = item or {}
+    defaults = defaults or {}
+    ftype = settings.resolve("type", fmt, item, defaults)
     if ftype == "dhms":
         interval = 1.0
     elif ftype in _UNIT_SECONDS:
-        precision = fmt.get("precision", 0)
+        precision = settings.resolve("precision", fmt, item, defaults, 0)
         interval = _UNIT_SECONDS[ftype] / (10**precision)
     else:
         interval = 1.0

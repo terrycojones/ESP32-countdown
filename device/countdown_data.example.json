@@ -20,11 +20,11 @@
     {
       "target": "2026-09-20T12:00:00Z",
       "display_seconds": 10,
+      "before_text": "Sample Event",
       "formats": [
         {
           "type": "days",
           "precision": 2,
-          "before_text": "Sample Event",
           "after_text": "days away",
           "background": "#001030",
           "value_color": "#ffcc00",
@@ -32,9 +32,7 @@
           "led_cycle_seconds": 3
         },
         {
-          "type": "dhms",
-          "before_text": "Sample Event",
-          "after_text": ""
+          "type": "dhms"
         }
       ]
     },

@@ -22,10 +22,11 @@ WIDTH, HEIGHT = display.WIDTH, display.HEIGHT
 buf = bytearray(WIDTH * HEIGHT * 2)
 fb = framebuf.FrameBuffer(buf, WIDTH, HEIGHT, framebuf.RGB565)
 
+defaults = data.get("defaults", {})
 for i, fmt in enumerate(item["formats"]):
-    value_str = countdownfmt.format_value(target, now, fmt)
+    value_str = countdownfmt.format_value(target, now, fmt, item, defaults)
     print(f"format {i}: type={fmt['type']} value={value_str!r} before={fmt.get('before_text')!r} after={fmt.get('after_text')!r}")
-    render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), data.get("defaults", {}), fmt, value_str)
+    render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), item, defaults, fmt, value_str)
     display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
     if i < len(item["formats"]) - 1:
         time.sleep(8)

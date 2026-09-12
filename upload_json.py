@@ -103,10 +103,37 @@ class ValidationError(Exception):
     pass
 
 
+def _resolved_skip(fmt, item, defaults):
+    """format -> item -> defaults resolution for just the 'skip' field --
+    same rule as device/lib/settings.resolve() (first of the three that
+    actually sets the key wins), reimplemented standalone here rather than
+    importing device/lib (which targets MicroPython) into this host
+    script just for one field. See DESIGN.md 'skip'."""
+    for source in (fmt, item, defaults):
+        if source and "skip" in source:
+            return source["skip"]
+    return False
+
+
+def _has_visible_content(data):
+    """True if at least one format would survive 'skip' filtering on the
+    device (see device/lib/countdown_data.apply_skip()) -- i.e. this
+    config wouldn't leave the device showing 'No data'."""
+    defaults = data.get("defaults", {})
+    for item in data.get("items", []):
+        for fmt in item.get("formats", []):
+            if not _resolved_skip(fmt, item, defaults):
+                return True
+    return False
+
+
 def validate_countdown_json(data):
     """Raises ValidationError if `data` doesn't meet the minimum schema
     (see DESIGN.md 'JSON schema'): at least one item, each with at least
-    one format. Returns a warning string (not fatal) if meta.url is
+    one format, and at least one format that survives 'skip' filtering
+    (see DESIGN.md 'skip') -- catches "everything is marked skip" at
+    upload time rather than only after the device rejects it and shows
+    'No data'. Returns a warning string (not fatal) if meta.url is
     missing, else None -- see DESIGN.md 'Data lifecycle'."""
     items = data.get("items", [])
     if not items:
@@ -116,6 +143,10 @@ def validate_countdown_json(data):
             raise ValidationError(
                 f"an item (target={item.get('target')!r}) has no formats -- refusing to upload."
             )
+    if not _has_visible_content(data):
+        raise ValidationError(
+            "every item/format is marked skip -- nothing would be displayed, refusing to upload."
+        )
     if not data.get("meta", {}).get("url"):
         return (
             "this JSON has no meta.url -- the device will NOT auto-refetch. "

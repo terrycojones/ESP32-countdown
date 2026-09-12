@@ -58,6 +58,7 @@ install-lib:
 	uv run mpremote connect $(PORT) cp device/lib/render.py :lib/render.py
 	uv run mpremote connect $(PORT) cp device/lib/led.py :lib/led.py
 	uv run mpremote connect $(PORT) cp device/lib/ledshow.py :lib/ledshow.py
+	uv run mpremote connect $(PORT) cp device/lib/settings.py :lib/settings.py
 
 # Copies device/main.py to the board's filesystem root as main.py, which
 # MicroPython runs automatically on every boot (after boot.py).

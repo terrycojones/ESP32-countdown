@@ -15,25 +15,23 @@
 import math
 
 import colors
+import settings
 
 DEFAULT_CYCLE_SECONDS = 4.0
 
 
-def resolve_led_spec(fmt, defaults):
-    """Returns (colors_rgb8, cycle_ms) for `fmt`, falling back to
-    `defaults`, then a hardcoded cycle duration if only colors are given.
-    Returns (None, None) if neither `fmt` nor `defaults` sets led_colors."""
-    colors_hex = fmt.get("led_colors")
-    if not colors_hex:
-        colors_hex = (defaults or {}).get("led_colors")
+def resolve_led_spec(fmt, item, defaults):
+    """Returns (colors_rgb8, cycle_ms) for `fmt`, via the fmt -> item ->
+    defaults chain (see DESIGN.md "Setting resolution"), then a hardcoded
+    cycle duration if only colors are given. Returns (None, None) if
+    nothing in that chain sets led_colors (including an explicit empty
+    list at any tier, which suppresses a light show inherited from a
+    later tier -- see settings.resolve)."""
+    colors_hex = settings.resolve("led_colors", fmt, item, defaults)
     if not colors_hex:
         return None, None
 
-    cycle_seconds = fmt.get("led_cycle_seconds")
-    if cycle_seconds is None:
-        cycle_seconds = (defaults or {}).get("led_cycle_seconds")
-    if cycle_seconds is None:
-        cycle_seconds = DEFAULT_CYCLE_SECONDS
+    cycle_seconds = settings.resolve("led_cycle_seconds", fmt, item, defaults, DEFAULT_CYCLE_SECONDS)
 
     return [colors.hex_to_rgb8(c) for c in colors_hex], int(cycle_seconds * 1000)
 

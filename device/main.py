@@ -179,12 +179,13 @@ while True:
 
     # -- redraw the value if its format's update interval has elapsed --
     fmt = item["formats"][format_indices[item_index]]
-    interval = countdownfmt.update_interval_seconds(fmt)
+    defaults = data.get("defaults", {})
+    interval = countdownfmt.update_interval_seconds(fmt, item, defaults)
     if now - last_draw_time >= interval:
-        display.set_brightness(d.backlight, display.resolve_brightness(fmt, data.get("defaults", {})))
+        display.set_brightness(d.backlight, display.resolve_brightness(fmt, item, defaults))
         target = isotime.parse_iso8601(item["target"])
-        value_str = countdownfmt.format_value(target, now, fmt)
-        render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), data.get("defaults", {}), fmt, value_str)
+        value_str = countdownfmt.format_value(target, now, fmt, item, defaults)
+        render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), item, defaults, fmt, value_str)
         display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
         last_draw_time = now
 
@@ -192,7 +193,7 @@ while True:
     # (which can be far slower for low-precision "days" formats), driven by
     # ticks_ms() rather than time.time() -- see ledshow.py for why. --
     if light_show_active and time.ticks_diff(now_ms, last_led_tick_ms) >= LED_TICK_MS:
-        led_colors, led_cycle_ms = ledshow.resolve_led_spec(fmt, data.get("defaults", {}))
+        led_colors, led_cycle_ms = ledshow.resolve_led_spec(fmt, item, defaults)
         if led_colors:
             r, g, b = ledshow.current_color(led_colors, led_cycle_ms, now_ms)
             led.set_color(led_np, r, g, b)
