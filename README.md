@@ -32,6 +32,10 @@ every step below.
 - Display: onboard 1.47" ST7789 TFT, 172×320 pixels, 262K colors,
   driven over SPI (pins: SCLK=7, MOSI=6, CS=14, DC=15, RST=21,
   Backlight=22)
+- RGB LED: onboard addressable WS2812-style LED on GPIO8
+  ("RGB_Control" in Waveshare's pinout table), controllable via
+  MicroPython's built-in `neopixel` module — see `device/lib/led.py`
+  and "Onboard RGB LED needs R/G swapped" below
 
 Waveshare's own docs note: keep backlight brightness at 50% or lower
 for extended use — running at full brightness can overheat the panel
@@ -278,6 +282,7 @@ Top level:
 | `layout.gap_before_value` / `gap_value_after` | number (px) | no, default 0 | Vertical gap around the value box, applied only when the adjacent text is non-empty. |
 | `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any format that doesn't specify its own. |
 | `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
+| `defaults.led_colors` / `led_cycle_seconds` | array of `"#RRGGBB"` / number | no | Fallback LED light-show colors/cycle time for any format that doesn't specify its own — see below. |
 | `items` | array | **yes**, ≥1 | The countdown events to cycle through. |
 
 Each entry in `items`:
@@ -315,6 +320,8 @@ Each entry in a `formats` list:
 | `before_text` / `after_text` | string | no | Text above/below the value. Omitting a field entirely and setting it to `""` are equivalent — either way, its space is given entirely to the value, making it bigger. |
 | `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides `defaults` for this specific format. |
 | `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides `defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). No item-level tier — set it on each of an item's formats individually if needed. |
+| `led_colors` | array of `"#RRGGBB"` strings | no | Overrides `defaults.led_colors`. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No `led_colors` (here or in `defaults`) → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down. |
+| `led_cycle_seconds` | number | no, default `4.0` | Time for one full loop through `led_colors` (only meaningful with 2+ colors) — overrides `defaults.led_cycle_seconds`. |
 
 Notes:
 
@@ -322,11 +329,15 @@ Notes:
   format: `"dhms"` recalculates every second; `"days"` recalculates
   every `10^-precision` days converted to seconds (e.g. `precision: 2`
   → ~14 minutes), with a 0.1-second floor.
-- **BOOT button**: a short press advances the *currently displayed*
+- **BOOT button**: a **short** press advances the *currently displayed*
   item to its next `formats` entry (wrapping around). Each item
   remembers its own chosen format independently as items rotate —
   switching item A to its second format keeps it there next time item
-  A comes around, while item B is unaffected.
+  A comes around, while item B is unaffected. A **long** press
+  (roughly 800ms+) instead toggles the LED light show on/off,
+  reflecting whichever item/format is currently active
+  (`led_colors`/`led_cycle_seconds` above) — see "Onboard RGB LED needs
+  R/G swapped" further down for what the LED itself is.
 - Orientation is fixed landscape (device mounted on its side, USB-C
   connector on the left) — there's no on-device way to change this at
   runtime (no accelerometer on this board), see "Display bring-up
@@ -340,8 +351,8 @@ works this way, the data-caching/fallback behavior, etc).
 
 - `device/lib/` — MicroPython modules copied onto the board's `/lib`
   (ST7789 driver, display init, scaled-text renderer, colors, ISO-8601
-  parsing, JSON fetch/cache, Wi-Fi, rendering — each documented via
-  comments in its own file)
+  parsing, JSON fetch/cache, Wi-Fi, rendering, RGB LED control and its
+  light-show animation — each documented via comments in its own file)
 - `device/main.py` — the application entry point, copied to the
   board's filesystem root so it runs on boot
 - `device/test_*.py` — bring-up/verification scripts requiring a human
@@ -666,6 +677,26 @@ reference points (`2000-01-01` → `0`, `1970-01-01` → `-946684800`) and
 the original failing 1963 date, now covered by a permanent regression
 test in `tests/test_logic.py`.
 
+### Onboard RGB LED needs R/G swapped
+
+The onboard addressable RGB LED (GPIO8) is driven with MicroPython's built-in `neopixel` module, which already compensates internally for the WS2812 family's usual GRB wire order — so a normal `NeoPixel[0] = (r, g, b)` call is expected to just work. It doesn't, on this board: calling it with `(50, 0, 0)` (intending red) showed **green**, and `(0, 50, 0)` showed **red** — the blue slot (third position) was unaffected and worked correctly first try. Confirmed by testing all three channels independently, then re-confirmed through the actual `led.py` helper API (not just the raw swapped calls) cycling red → green → blue → off.
+
+So this specific LED's real wire order doesn't match `neopixel`'s built-in assumption, whatever it actually is — the practical fix, in `device/lib/led.py`'s `set_color(np, r, g, b)`, is simply to swap the first two arguments before writing (`np[0] = (g, r, b)`), leaving blue in place. Anyone using this LED directly (bypassing `led.py`) would hit the same red/green swap `st7789py`'s color order caused for the display — another instance of "don't trust a library's built-in assumption about a specific LED/panel's wire order, verify empirically."
+
+### BOOT long press needs release-time classification
+
+The original BOOT handling fired its action on the *press* edge (`if level == 0: ...`), which worked fine when there was only one kind of action (short-press format-cycling) but breaks down once a second action (long-press, for the LED light show) needs distinguishing by how long the button ends up being held — a press-edge handler doesn't yet know that, since the button hasn't been released yet. Fixed by restructuring to record the press time on the press edge and only decide what happened (and act) on the *release* edge, comparing the held duration against an 800ms threshold. Short presses still act instantly from the user's perspective (release lags a quick tap by only milliseconds); a long press's action now naturally fires the moment you let go rather than the moment you press down.
+
+### LED animation needs its own clock, not `time.time()`
+
+While building the LED light show, confirmed `time.time()` on this device only has whole-second resolution (printed the same integer across several `sleep_ms(200)` calls in a row). A smooth color animation ticking once a second would look like a jerky step, not a fade, so `ledshow.py`'s animation timing runs on `time.ticks_ms()` (already used elsewhere for button debouncing) instead — unaffected by `time.time()`'s coarseness either way, since it's a separate monotonic counter. Side finding, not fixed: the countdown *value's* own redraw timing still uses `time.time()`, so it's technically capped at 1Hz regardless of `countdownfmt.py`'s "0.1s smoothness floor" for high-precision `days` formats — in practice this mostly doesn't show, since at `precision=5` the display's least-significant digit already changes by about 1 per second anyway, matching the underlying clock's own granularity.
+
+### The LED outlives a software reset
+
+Confirmed empirically: set the LED to a bright color, `mpremote ... reset` the board, and it was still showing that color afterward — the LED is a separate chip from the MCU, so resetting the MCU doesn't clear it. `main.py` now explicitly turns the LED off during startup so every boot begins from a known state, which matters because config uploads (`upload_json.py`/`upload_wifi.py`/the `install-*` Makefile targets) always go through an interrupt-and-reset cycle (see "Uploading interrupts the running app") — without this, a light show left running before an upload would keep glowing its last color on the freshly-booted app, even though `light_show_active` itself already reinitializes to `False` in software on every run.
+
+This is deliberately **local-reboot-only**: a periodic remote refetch (`meta.url`) that changes the data does *not* reset `light_show_active`, even though it does reset `item_index`/`format_indices` to 0 — an ongoing light show is meant to survive routine background data refreshes, not just a config push from your own machine. It still catches up to new data within one LED tick (~50ms) regardless, since `led_colors` is resolved fresh from whichever item/format is currently active every tick, never cached from when the light show was turned on.
+
 ### Flash usage
 
 Of the 8MB total flash, ~2MB is the MicroPython firmware
@@ -708,7 +739,13 @@ to break it down by file.
       item), periodic refetch — confirmed working end-to-end on real
       hardware
 - [x] BOOT button confirmed as GPIO9, active-low (RESET is
-      hardware-only, not software-readable)
+      hardware-only, not software-readable); long-press (800ms+)
+      classified on release, toggles the LED light show
+- [x] Onboard RGB LED (`device/lib/led.py`, GPIO8) confirmed working,
+      including its R/G-swap quirk; per-format `led_colors`/
+      `led_cycle_seconds` light show (`device/lib/ledshow.py`)
+      confirmed working end-to-end (fixed color, multi-color loop, and
+      the long-press toggle)
 - [x] Full countdown app design written up (see `DESIGN.md`)
 
 Deferred (see `DESIGN.md` "Not yet designed / deferred"): an on-screen

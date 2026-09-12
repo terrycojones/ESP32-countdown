@@ -165,8 +165,73 @@ Display update cadence (how often the value is recalculated/redrawn) is
 - **RESET** is wired to the chip's hardware EN/reset line, not a GPIO --
   pressing it restarts the whole board before any code can run, so it
   cannot be handled in software.
+- BOOT is classified **on release**, by how long it was held (an
+  800ms threshold) -- not on the press edge, since a press-edge action
+  can't yet know whether it'll turn out to be a short or long press.
+  Short press: existing per-item format-cycling behavior, unchanged.
+  Long press: toggles the LED light show on/off, see "LED light show"
+  below.
 - Future (not in the first build pass): a short press could also trigger
   an immediate JSON refetch attempt.
+
+## LED light show
+
+- Onboard addressable RGB LED on **GPIO8**, driven via MicroPython's
+  built-in `neopixel` module. This specific LED's wire order doesn't
+  match `neopixel`'s built-in GRB assumption -- confirmed empirically
+  (see README.md "Onboard RGB LED needs R/G swapped") -- `led.py`'s
+  `set_color(np, r, g, b)` swaps R and G before writing to compensate.
+- A format may set `led_colors` (array of 1+ `"#RRGGBB"` strings) and
+  `led_cycle_seconds` (float, default 4.0), both with a `defaults`-level
+  fallback -- same two-tier pattern as the color fields and
+  `brightness`, and the same reason for no item-level tier (set it per
+  format if a specific item needs it).
+- One color -> LED fixed at that color while the light show is on and
+  this format is active. Two or more -> the LED smoothly loops through
+  all of them in a closed cycle (color N-1 blends back into color 0),
+  `led_cycle_seconds` being the time for one full loop, split evenly
+  per color-to-color segment. Each segment is eased with a sine curve
+  (`(1 - cos(pi * t)) / 2`) rather than a linear blend, so there's no
+  abrupt rate-of-change kink at each color -- for exactly 2 colors this
+  is equivalent to a smooth back-and-forth "breathing" oscillation
+  (mathematically a degenerate case of the general N-color loop, not a
+  separately-implemented mode).
+- A long BOOT press toggles a single global on/off flag for the whole
+  light show; it does not change what's shown on the LCD or what short
+  press does. While on, the LED continuously reflects whichever
+  item/format is *currently* active, updating automatically as items
+  rotate or short-press cycles formats -- resolved fresh every LED tick,
+  not cached at the moment the light show was turned on. A format with
+  no `led_colors` (and no `defaults.led_colors` either) means the LED
+  goes off while that format is showing.
+- The animation runs on its own ~20Hz tick (`LED_TICK_MS = 50` in
+  `main.py`), independent of the value redraw's own (often much slower)
+  interval, driven by `time.ticks_ms()` rather than `time.time()` --
+  confirmed empirically that `time.time()` on this device only has
+  whole-second resolution, which would make the animation a jerky
+  once-a-second step instead of smooth.
+- The LED chip is separate from the MCU, so it keeps showing whatever
+  color it last had even across a software reset -- confirmed
+  empirically (set it red, `mpremote ... reset`, still red). `main.py`
+  now explicitly turns it off during startup so every boot begins from
+  a known state. This matters specifically for config uploads
+  (`upload_json.py`/`upload_wifi.py`/the `install-*` Makefile targets),
+  which always go through an `mpremote cp` + reset cycle (see
+  "Uploading interrupts the running app") -- without the explicit
+  startup off, a light show left running before an upload would still
+  be showing its last color on the new boot, even though
+  `light_show_active` itself already reinitializes to `False` in
+  software on every fresh run.
+- Deliberately **not** reset by a periodic remote refetch (`meta.url`,
+  no reboot involved) that changes the data, even though that also
+  resets `item_index`/`format_indices` to 0 -- an ongoing light show is
+  meant to survive routine background data refreshes undisturbed;
+  only a full reboot (as caused by a local config push) clears it. No
+  extra code is needed for a refetch to visually reflect new data
+  though: the LED tick already resolves `led_colors` fresh from
+  whichever item/format is currently active on every tick, so a
+  refetch's item-index reset alone is enough to make the LED catch up
+  within one tick (~50ms).
 
 ## Wi-Fi
 

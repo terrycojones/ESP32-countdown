@@ -8,6 +8,14 @@ def hex_to_rgb565(hex_color):
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
+def hex_to_rgb8(hex_color):
+    """Convert '#RRGGBB' (or 'RRGGBB') to an (r, g, b) tuple, 0-255 each --
+    full precision, unlike hex_to_rgb565's lossy 5/6/5-bit packing. For the
+    LED (led.py/ledshow.py), not the display."""
+    s = hex_color.lstrip("#")
+    return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
 def byteswap16(v):
     """Swap the two bytes of a 16-bit value.
 

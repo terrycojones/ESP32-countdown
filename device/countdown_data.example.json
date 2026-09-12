@@ -27,7 +27,9 @@
           "before_text": "Sample Event",
           "after_text": "days away",
           "background": "#001030",
-          "value_color": "#ffcc00"
+          "value_color": "#ffcc00",
+          "led_colors": ["#ff0000", "#ffcc00", "#0000ff"],
+          "led_cycle_seconds": 3
         },
         {
           "type": "dhms",

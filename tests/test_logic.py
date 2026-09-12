@@ -4,12 +4,13 @@
 # for how pytest is kept from trying to collect this file.
 #
 # Sanity-checks colors.py / isotime.py / countdownfmt.py / countdown_data.py /
-# display.py's resolve_brightness directly on the device's real MicroPython
-# interpreter, since subtle stdlib differences from CPython (str.format
-# support, integer/float precision, divmod with negatives) are worth
-# confirming rather than assuming. Importing display.py has no side effects
-# (no hardware is touched until init_display() is actually called), so it's
-# safe to import here just for resolve_brightness.
+# display.py's resolve_brightness / ledshow.py directly on the device's real
+# MicroPython interpreter, since subtle stdlib differences from CPython
+# (str.format support, integer/float precision, divmod with negatives) are
+# worth confirming rather than assuming. Importing display.py has no side
+# effects (no hardware is touched until init_display() is actually called),
+# so it's safe to import here just for resolve_brightness; same for led.py
+# (no hardware touched until init_led() is called) and ledshow.py (pure math).
 import time
 
 import colors
@@ -17,6 +18,7 @@ import display
 import countdown_data
 import countdownfmt
 import isotime
+import ledshow
 
 print("hex_to_rgb565('#ff0000') =", hex(colors.hex_to_rgb565("#ff0000")))
 assert colors.hex_to_rgb565("#ff0000") == 0xF800
@@ -132,5 +134,35 @@ assert display.resolve_brightness({}, {"brightness": 0.0}) == 0.0, (
     "0.0 at the defaults level is also real, not 'unset'"
 )
 print("resolve_brightness OK")
+
+# -- colors.hex_to_rgb8 --
+assert colors.hex_to_rgb8("#ff8000") == (255, 128, 0)
+assert colors.hex_to_rgb8("ff8000") == (255, 128, 0)  # no leading '#' also works
+print("hex_to_rgb8 OK")
+
+# -- ledshow.resolve_led_spec --
+assert ledshow.resolve_led_spec({}, {}) == (None, None), "no led_colors anywhere -> no light show"
+c, cyc = ledshow.resolve_led_spec({"led_colors": ["#ff0000"]}, {})
+assert c == [(255, 0, 0)] and cyc == int(ledshow.DEFAULT_CYCLE_SECONDS * 1000), (c, cyc)
+c, cyc = ledshow.resolve_led_spec({}, {"led_colors": ["#00ff00"], "led_cycle_seconds": 2})
+assert c == [(0, 255, 0)] and cyc == 2000, (c, cyc)
+c, cyc = ledshow.resolve_led_spec({"led_colors": ["#0000ff"]}, {"led_colors": ["#00ff00"]})
+assert c == [(0, 0, 255)], "format-level led_colors must override defaults"
+print("resolve_led_spec OK")
+
+# -- ledshow.current_color --
+assert ledshow.current_color([(10, 20, 30)], 5000, 12345) == (10, 20, 30), "single color is always fixed"
+
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+assert ledshow.current_color([RED, BLUE], 1000, 0) == RED, "t=0 should be exactly the first color"
+assert ledshow.current_color([RED, BLUE], 1000, 500) == BLUE, (
+    "t=cycle/2 with 2 colors should have reached the second color exactly"
+)
+quarter = ledshow.current_color([RED, BLUE], 1000, 250)
+threeq = ledshow.current_color([RED, BLUE], 1000, 750)
+assert quarter == threeq, "sine easing should be symmetric around each segment's midpoint"
+assert 0 < quarter[0] < 255 and 0 < quarter[2] < 255, "quarter-way through should be a genuine blend, not an endpoint"
+print("current_color OK")
 
 print("ALL OK")

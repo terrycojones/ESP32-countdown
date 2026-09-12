@@ -12,6 +12,8 @@ import countdown_data
 import countdownfmt
 import display
 import isotime
+import led
+import ledshow
 import render
 import text
 import wifi
@@ -33,6 +35,8 @@ except Exception:
 BOOT_PIN = 9  # see README.md "BOOT button" -- confirmed empirically
 DEBOUNCE_MS = 50
 POLL_MS = 20
+LONG_PRESS_MS = 800  # see README.md "LED light show" for why this threshold
+LED_TICK_MS = 50  # ~20Hz -- smooth without being wasteful; see ledshow.py
 
 d = display.init_display()
 WIDTH, HEIGHT = display.WIDTH, display.HEIGHT
@@ -40,6 +44,13 @@ buf = bytearray(WIDTH * HEIGHT * 2)
 fb = framebuf.FrameBuffer(buf, WIDTH, HEIGHT, framebuf.RGB565)
 
 boot_btn = machine.Pin(BOOT_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
+led_np = led.init_led()
+# The LED chip is separate from the MCU, so it keeps showing whatever
+# color it last had even across a software reset (e.g. the one that
+# follows a config upload -- confirmed empirically: left on red, reset,
+# still red). Force it off here so every boot starts from a known state
+# rather than whatever the light show happened to be doing before.
+led.off(led_np)
 
 
 def show_message(msg):
@@ -112,6 +123,9 @@ last_refresh = time.time()
 last_draw_time = 0
 last_boot_level = boot_btn.value()
 last_boot_change_ms = time.ticks_ms()
+press_start_ms = None  # set when a debounced press begins; classified on release
+light_show_active = False
+last_led_tick_ms = 0
 
 while True:
     now = time.time()
@@ -141,16 +155,27 @@ while True:
         item = items[item_index]
         last_draw_time = 0  # force immediate redraw of the new item
 
-    # -- BOOT button: short press advances the current item's format index,
-    # remembered per-item (see DESIGN.md "Item and format cycling") --
+    # -- BOOT button: classified on release, by how long it was held. Short
+    # press advances the current item's format index, remembered per-item
+    # (see DESIGN.md "Item and format cycling"). Long press toggles the LED
+    # light show on/off (see README.md "LED light show"). --
     level = boot_btn.value()
     if level != last_boot_level and time.ticks_diff(now_ms, last_boot_change_ms) > DEBOUNCE_MS:
         last_boot_change_ms = now_ms
         last_boot_level = level
         if level == 0:  # active-low: 0 means just pressed
-            formats = item["formats"]
-            format_indices[item_index] = (format_indices[item_index] + 1) % len(formats)
-            last_draw_time = 0  # force immediate redraw
+            press_start_ms = now_ms
+        elif press_start_ms is not None:  # just released
+            held_ms = time.ticks_diff(now_ms, press_start_ms)
+            press_start_ms = None
+            if held_ms >= LONG_PRESS_MS:
+                light_show_active = not light_show_active
+                if not light_show_active:
+                    led.off(led_np)
+            else:
+                formats = item["formats"]
+                format_indices[item_index] = (format_indices[item_index] + 1) % len(formats)
+                last_draw_time = 0  # force immediate redraw
 
     # -- redraw the value if its format's update interval has elapsed --
     fmt = item["formats"][format_indices[item_index]]
@@ -162,5 +187,17 @@ while True:
         render.render_item(fb, WIDTH, HEIGHT, data.get("layout", {}), data.get("defaults", {}), fmt, value_str)
         display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
         last_draw_time = now
+
+    # -- LED light show: independent tick rate from the value redraw above
+    # (which can be far slower for low-precision "days" formats), driven by
+    # ticks_ms() rather than time.time() -- see ledshow.py for why. --
+    if light_show_active and time.ticks_diff(now_ms, last_led_tick_ms) >= LED_TICK_MS:
+        led_colors, led_cycle_ms = ledshow.resolve_led_spec(fmt, data.get("defaults", {}))
+        if led_colors:
+            r, g, b = ledshow.current_color(led_colors, led_cycle_ms, now_ms)
+            led.set_color(led_np, r, g, b)
+        else:
+            led.off(led_np)
+        last_led_tick_ms = now_ms
 
     time.sleep_ms(POLL_MS)
