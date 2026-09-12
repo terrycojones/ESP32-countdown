@@ -18,10 +18,12 @@ from the hardware bring-up covered in README.md.
     "margin_right": 4,
     "gap_before_value": 4,
     "gap_after_value": 4,
+    "top_text_height": 24,
+    "bottom_text_height": 24,
     "background": "#000000",
-    "before_color": "#ffffff",
+    "top_text_color": "#ffffff",
     "value_color": "#ffffff",
-    "after_color": "#ffffff",
+    "bottom_text_color": "#ffffff",
     "brightness": 0.5
   },
   "items": [
@@ -32,16 +34,16 @@ from the hardware bring-up covered in README.md.
         {
           "type": "days",
           "precision": 2,
-          "before_text": "Christmas",
-          "after_text": "away",
+          "top_text": "Christmas",
+          "bottom_text": "away",
           "background": "#001030",
           "value_color": "#ffcc00",
           "brightness": 0.8
         },
         {
           "type": "dhms",
-          "before_text": "Christmas",
-          "after_text": ""
+          "top_text": "Christmas",
+          "bottom_text": ""
         }
       ]
     }
@@ -61,29 +63,34 @@ Notes:
   the device reconnects to Wi-Fi, re-syncs the clock via NTP, and re-fetches
   the JSON.
 - `defaults` gives fallback values for any setting a format entry (or its
-  parent item) omits. Includes `background`, so all four color fields live
-  at the same level, plus the six margin/gap fields (`margin_top`,
-  `margin_bottom`, `margin_left`, `margin_right`, `gap_before_value`,
-  `gap_after_value`) that size the three vertical boxes (before-text,
-  value, after-text) -- like every other setting here, these resolve
+  parent item) omits. Includes `background`, so all four color fields
+  (`background`, `top_text_color`, `value_color`, `bottom_text_color`)
+  live at the same level, plus the eight margin/gap/text-height fields
+  (`margin_top`, `margin_bottom`, `margin_left`, `margin_right`,
+  `gap_before_value`, `gap_after_value`, `top_text_height`,
+  `bottom_text_height`) that size the three vertical boxes (top-text,
+  value, bottom-text) -- like every other setting here, these resolve
   through the format -> item -> defaults chain (see "Setting resolution"
-  below), so an individual item or format can override the margins/gaps
-  it's drawn with instead of always using the global default.
+  below), so an individual item or format can override the margins/gaps/
+  heights it's drawn with instead of always using the global default.
+  Each of these eight fields may be a plain number (pixels) or a
+  percentage string like `"12%"` -- see "Percentage layout values"
+  below.
 - `items` must contain at least one entry. Each item must have at least one
   entry in its own `formats` list.
 - Every setting a format entry can have (`type`, `precision`,
-  `absolute_value`, `commas`, `before_text`, `after_text`, the four color
+  `absolute_value`, `commas`, `top_text`, `bottom_text`, the four color
   fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`, and the
-  six margin/gap fields) may *also* be set directly on the parent `item`
-  -- see "Setting resolution" below. This is for formats that mostly share
-  the same look/text and differ only in, say, `type`/`precision`: put the
-  shared settings on the item once instead of repeating them on every one
-  of its formats.
-- `before_text`/`after_text` may be empty/omitted -- the vertical space
+  eight margin/gap/text-height fields) may *also* be set directly on the
+  parent `item` -- see "Setting resolution" below. This is for formats
+  that mostly share the same look/text and differ only in, say,
+  `type`/`precision`: put the shared settings on the item once instead of
+  repeating them on every one of its formats.
+- `top_text`/`bottom_text` may be empty/omitted -- the vertical space
   that text would have used is instead given entirely to the countdown
   value's box (not split/redistributed elsewhere). An empty string is a
   real, final value (see "Setting resolution"): a format can set
-  `before_text: ""` to explicitly suppress an item-level `before_text` it
+  `top_text: ""` to explicitly suppress an item-level `top_text` it
   would otherwise inherit.
 - Past events (target date already passed) show a negative value with a
   leading `-`, for both `days` and `dhms` format types. No special
@@ -96,7 +103,7 @@ Notes:
 Every format-level setting resolves through the same three-tier chain:
 **format entry -> parent item -> `defaults`** -- the first of those three
 that actually *sets* the key wins, else a hardcoded Python-level default
-(e.g. `display.DEFAULT_BRIGHTNESS`, or `""` for `before_text`/`after_text`).
+(e.g. `display.DEFAULT_BRIGHTNESS`, or `""` for `top_text`/`bottom_text`).
 One shared helper, `settings.resolve(key, fmt, item, defaults, fallback)`,
 implements this and is used everywhere a setting is looked up
 (`countdownfmt.py`, `display.resolve_brightness()`,
@@ -105,7 +112,7 @@ implements this and is used everywhere a setting is looked up
 
 Resolution is checked by **presence** (`key in source`), not truthiness:
 an explicit falsy value at whichever tier sets it first -- `0.0` brightness,
-an empty `led_colors` list, an empty `before_text`/`after_text` string --
+an empty `led_colors` list, an empty `top_text`/`bottom_text` string --
 is a real, final answer and does **not** fall through to a later tier. This
 generalizes a rule the codebase already had for `brightness` (`0.0` is
 "fully off", not "unset") to every setting: it means, for example, that an
@@ -122,6 +129,57 @@ at the item or `defaults` level too (the resolution chain doesn't
 special-case which keys are "structural" vs. "format" settings), though in
 practice `type` usually still varies per format -- that's the whole point
 of an item having several formats to rotate through.
+
+## Percentage layout values
+
+Each of these eight settings -- `margin_top`, `margin_bottom`,
+`margin_left`, `margin_right`, `gap_before_value`, `gap_after_value`,
+`top_text_height`, `bottom_text_height` -- may be given either as a plain
+number (pixels, as documented in the JSON schema above) or as a string
+like `"12%"` -- a percentage of the relevant axis of the full logical
+frame (`display.WIDTH`/`HEIGHT`, 320x172 landscape -- see "Display
+orientation" below), *not* of whatever space is left after other
+margins/heights are already subtracted. `margin_left`/`margin_right` are
+percentages of the frame width; the other six (`margin_top`,
+`margin_bottom`, `gap_before_value`, `gap_after_value`,
+`top_text_height`, `bottom_text_height`) are percentages of the frame
+height. Resolved to the nearest pixel (`render._resolve_px()`) after the
+normal fmt -> item -> defaults resolution above -- a percentage string
+set at one tier and a plain pixel number at another resolve exactly like
+any other setting, since resolution only cares which tier first *has*
+the key, not what type its value is.
+
+`top_text_height`/`bottom_text_height` control how much vertical space
+the top/bottom text boxes get when their text (`top_text`/`bottom_text`)
+is non-empty -- unset, each defaults to `render.DEFAULT_TEXT_HEIGHT`
+(24px). The countdown value's box always gets whatever's left over after
+margins, gaps, and the top/bottom text heights are subtracted (clamped
+to zero if that would go negative -- see "Rendering" below) -- it's
+never itself a configurable height.
+
+### Layout sanity warnings
+
+`upload_json.py` checks each non-skipped format's *resolved*
+margins/gaps/text-heights (percentages already converted to pixels)
+against the frame size and prints a non-fatal `WARNING:` for two cases,
+mirroring `device/lib/render.py`'s own box math (`_layout_warnings()`,
+reimplemented standalone for the same host-vs-device reason as
+`_resolved_skip()`):
+
+- **Vertical**: `margin_top + margin_bottom` plus `gap_before_value` and
+  `top_text_height` (only if `top_text` resolves non-empty) plus
+  `gap_after_value` and `bottom_text_height` (only if `bottom_text` does)
+  exceeds 70% of the frame height.
+- **Horizontal**: `margin_left + margin_right` exceeds 70% of the frame
+  width.
+
+Either reaching or exceeding 100% gets more emphatic wording (a
+guaranteed blank value box, or nothing visible at all) instead of
+"probably won't look sensible," but it's still just a warning, never a
+`ValidationError` -- the upload is never blocked over this, no matter how
+large the total, since the config might be a work-in-progress a human is
+actively tuning. Skipped formats are excluded (they never render, so
+their margins are moot).
 
 ## `skip`
 
@@ -177,14 +235,19 @@ color-aware drawing for this display -- `st7789py` only has raw
 pixel/rect/blit primitives, and `framebuf`'s built-in font is a fixed 8x8
 bitmap. This means a custom rendering module, using:
 
-- The resolved margin/gap settings to compute three vertical boxes
-  (before-text, value, after-text) within the 320x172 landscape frame,
-  redistributing an empty text box's space entirely into the value's box.
+- The resolved margin/gap/text-height settings to compute three vertical
+  boxes (top-text, value, bottom-text) within the 320x172 landscape
+  frame, redistributing an empty text box's space entirely into the
+  value's box.
 - A scaled-text routine that draws the built-in 8x8 bitmap font upscaled by
-  an integer factor N (nearest-neighbor, N x N blocks per source pixel),
-  with N computed automatically per box from the available space and
-  string length -- applied uniformly to all three text regions, which
-  naturally makes the value big since its box is the largest.
+  a factor N -- N can be fractional, not just an integer: each source
+  pixel's destination block edges are rounded independently
+  (`round(n * N)`), so blocks come out `floor(N)` or `ceil(N)` pixels
+  wide/tall in whatever mix averages out to N (nearest-neighbor either
+  way, just not limited to a uniform integer block size). N is computed
+  automatically per box from the available space and string length --
+  applied uniformly to all three text regions, which naturally makes the
+  value big since its box is the largest.
 - Colors as `#RRGGBB` hex strings in JSON, converted to RGB565 for drawing.
 
 ## Value formats
@@ -208,7 +271,7 @@ Six format types:
 A format entry may also set `"absolute_value": true`, which runs the
 underlying (signed) time delta through `abs()` before formatting -- for
 any of the five types. Useful for an always-in-the-past target where the
-sign is just noise, e.g. a birthday: `before_text: "You are"`, `after_text:
+sign is just noise, e.g. a birthday: `top_text: "You are"`, `bottom_text:
 "days old"`, `absolute_value: true` reads as "You are 10957.83 days old"
 instead of "You are -10957.83 days old".
 

@@ -35,10 +35,24 @@ reset:
 # These write files to the board's onboard filesystem (not the flash image
 # itself). Reversible, but will overwrite any existing files at the same path.
 # NOTE: copying a file interrupts main.py if it's running, and does NOT
-# auto-resume it -- follow install-python with `make reset` if the app was
-# running (see README.md "Uploading interrupts the running app").
-# install-wifi-config resets automatically, via upload_wifi.py's default
-# behavior (pass --no-reset to upload_wifi.py directly to skip it).
+# auto-resume it on its own (see README.md "Uploading interrupts the
+# running app") -- both install-python and install-wifi-config reset the
+# board afterward by default to actually resume it, the same way
+# upload_json.py does.
+#
+# Separately: every display-touching test target below (test-display,
+# test-module, test-text, test-landscape, test-render) also resets the
+# board immediately before running, for a reason confirmed empirically --
+# `mpremote run`'s own internal "soft reboot" (Ctrl-D) between separate
+# mpremote invocations does NOT reliably reclaim memory used by
+# display.init_display()'s SPI/DMA setup, so repeated display-touching
+# runs in the same power-on session (without an intervening *hardware*
+# reset) can progressively fragment the heap until even a fresh,
+# unrelated allocation (e.g. test-render's own framebuffer) fails with a
+# MemoryError -- even while gc.mem_free() still reports plenty of total
+# free memory. A real `machine.reset()` (what `make reset` runs) reliably
+# clears this; the plain raw-REPL soft reset inside `mpremote run` does
+# not.
 
 .PHONY: install-python install-wifi-config test-display test-module test-text test-landscape test-logic test-host test-render
 
@@ -71,6 +85,7 @@ reset:
 	uv run mpremote connect $(PORT) cp device/lib/ledshow.py :lib/ledshow.py
 	uv run mpremote connect $(PORT) cp device/lib/settings.py :lib/settings.py
 	uv run mpremote connect $(PORT) cp device/main.py :main.py
+	uv run mpremote connect $(PORT) reset
 	touch $@
 
 # Copies this project's Python code (device/lib/*.py + device/main.py) onto
@@ -85,22 +100,30 @@ install-wifi-config:
 
 # Runs device/test_display.py directly from the host without copying it to
 # the board -- good for quick iteration while tuning display parameters.
+# Resets first -- see the DEVICE FILESYSTEM note above.
 test-display:
+	uv run mpremote connect $(PORT) reset
 	uv run mpremote connect $(PORT) run device/test_display.py
 
 # Runs device/test_module.py, which exercises the reusable device/lib/display.py
 # module (auto-reinstalls device/lib and device/main.py first if either has
 # changed locally since the last install -- see .stamp-python above).
+# Resets first -- see the DEVICE FILESYSTEM note above.
 test-module: .stamp-python
+	uv run mpremote connect $(PORT) reset
 	uv run mpremote connect $(PORT) run device/test_module.py
 
 # Runs device/test_text.py, which exercises the scaled-text renderer in
 # device/lib/text.py (auto-reinstalls first if needed -- see .stamp-python).
+# Resets first -- see the DEVICE FILESYSTEM note above.
 test-text: .stamp-python
+	uv run mpremote connect $(PORT) reset
 	uv run mpremote connect $(PORT) run device/test_text.py
 
 # Runs device/test_landscape.py to iterate on landscape rotation parameters.
+# Resets first -- see the DEVICE FILESYSTEM note above.
 test-landscape:
+	uv run mpremote connect $(PORT) reset
 	uv run mpremote connect $(PORT) run device/test_landscape.py
 
 # Runs tests/test_logic.py, sanity-checking colors.py/isotime.py/countdownfmt.py/
@@ -119,7 +142,9 @@ test-host:
 # JSON currently uploaded to the device (auto-reinstalls first if needed --
 # see .stamp-python; still requires a prior
 # `uv run python upload_json.py <path>` to seed the countdown data itself).
+# Resets first -- see the DEVICE FILESYSTEM note above.
 test-render: .stamp-python
+	uv run mpremote connect $(PORT) reset
 	uv run mpremote connect $(PORT) run device/test_render.py
 
 # --- DANGER ZONE ---

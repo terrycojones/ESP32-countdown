@@ -261,8 +261,8 @@ display_seconds = 10
 [[items.formats]]
 type = "days"
 precision = 2
-before_text = "Christmas"
-after_text = "away"
+top_text = "Christmas"
+bottom_text = "away"
 value_color = "#ffcc00"
 ```
 
@@ -277,9 +277,10 @@ Top level:
 | `meta.url` | string | no | Where to fetch the *next* update from (may embed HTTP Basic Auth: `https://user:pass@host/path`). Omit the key entirely (or, in JSON, set it to `null`) for static mode — never auto-refetches. |
 | `meta.refetch_after_seconds` | number | no | How often (while `meta.url` is set) to reconnect to Wi-Fi, re-sync the clock, and refetch. |
 | `meta.upload_command` | string | no | Host-side-only, not read by the device: a shell command template (`{path}` → local JSON path) that `upload_json.py --upload` runs to push the JSON to `meta.url`'s server. See "Uploading your countdown data". |
-| `defaults.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no, default 0 | Fallback outer margins of the usable content area, for any item/format that doesn't specify its own — see "Setting resolution" below. |
-| `defaults.gap_before_value` / `gap_after_value` | number (px) | no, default 0 | Fallback vertical gap around the value box (applied only when the adjacent text is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. |
-| `defaults.background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below. |
+| `defaults.margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) or `"N%"` string | no, default 0 | Fallback outer margins of the usable content area, for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full width (`margin_left`/`margin_right`) or height (`margin_top`/`margin_bottom`) — see "Percentage layout values" below. |
+| `defaults.gap_before_value` / `gap_after_value` | number (px) or `"N%"` string | no, default 0 | Fallback vertical gap around the value box (applied only when the adjacent text is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full height — see "Percentage layout values" below. |
+| `defaults.top_text_height` / `bottom_text_height` | number (px) or `"N%"` string | no, default 24 | Fallback height of the top/bottom text box (applied only when `top_text`/`bottom_text` is non-empty), for any item/format that doesn't specify its own — see "Setting resolution" below. A percentage is of the frame's full height — see "Percentage layout values" below. |
+| `defaults.background` / `top_text_color` / `value_color` / `bottom_text_color` | `"#RRGGBB"` string | no | Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below. |
 | `defaults.brightness` | number, `0.0`-`1.0` | no | Fallback backlight brightness for any item/format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too. |
 | `defaults.led_colors` / `led_cycle_seconds` | array of `"#RRGGBB"` / number | no | Fallback LED light-show colors/cycle time for any item/format that doesn't specify its own — see below. |
 | `items` | array | **yes**, ≥1 | The countdown events to cycle through. |
@@ -316,12 +317,13 @@ Each entry in a `formats` list:
 |---|---|---|---|
 | `type` | `"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"`, or `"dhms"` | **yes** | The first five: floating-point count of that unit remaining (or elapsed, if past) — same shape, just a different unit (`"years"` uses the 365.25-day Julian year, the usual astronomical/calendar average that accounts for leap years). `"dhms"`: integer `D-HH:MM:SS` breakdown. Past events show a leading `-` either way. |
 | `precision` | integer | only for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` | Decimal digits shown — also determines how often the value is recalculated, see below. Not used by (and has no effect on) `"dhms"`. |
-| `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (any `type`) — for an always-in-the-past target where the sign is just noise, e.g. `before_text: "You are"`, `after_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
+| `absolute_value` | boolean | no, default `false` | If `true`, the value is run through `abs()` before formatting (any `type`) — for an always-in-the-past target where the sign is just noise, e.g. `top_text: "You are"`, `bottom_text: "days old"`, `absolute_value: true` → "You are 10957.83 days old" instead of "You are -10957.83 days old". |
 | `commas` | boolean | no, default `false` | If `true`, inserts thousands-separator commas into the number, e.g. `1,234,567.90` instead of `1234567.90` (sign stays outside the grouping). Only meaningful for `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"`, not `"dhms"`. |
-| `before_text` / `after_text` | string | no | Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/`defaults`; setting it to `""` explicitly is a real, final value that opts back out of an inherited one. |
-| `background` / `before_color` / `value_color` / `after_color` | `"#RRGGBB"` string | no | Overrides the item's/`defaults`' color for this specific format. |
-| `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) | no | Overrides the item's/`defaults`' outer margin for this specific format. |
-| `gap_before_value` / `gap_after_value` | number (px) | no | Overrides the item's/`defaults`' vertical gap around the value box for this specific format. |
+| `top_text` / `bottom_text` | string | no | Text above/below the value; empty (however it ends up resolving, see below) gives that space entirely to the value, making it bigger. Omitting the field lets it inherit from the item/`defaults`; setting it to `""` explicitly is a real, final value that opts back out of an inherited one. |
+| `background` / `top_text_color` / `value_color` / `bottom_text_color` | `"#RRGGBB"` string | no | Overrides the item's/`defaults`' color for this specific format. |
+| `margin_top` / `margin_bottom` / `margin_left` / `margin_right` | number (px) or `"N%"` string | no | Overrides the item's/`defaults`' outer margin for this specific format. |
+| `gap_before_value` / `gap_after_value` | number (px) or `"N%"` string | no | Overrides the item's/`defaults`' vertical gap around the value box for this specific format. |
+| `top_text_height` / `bottom_text_height` | number (px) or `"N%"` string | no, default 24 | Overrides the item's/`defaults`' height for the top/bottom text box (only relevant when `top_text`/`bottom_text` is non-empty) for this specific format — the value box always gets whatever vertical space is left over. |
 | `brightness` | number, `0.0`-`1.0` | no | Backlight brightness while this format is shown — overrides the item's/`defaults.brightness`. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch). |
 | `led_colors` | array of `"#RRGGBB"` strings | no | Overrides the item's/`defaults.led_colors`. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No `led_colors` anywhere in the chain → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down. |
 | `led_cycle_seconds` | number | no, default `4.0` | Time for one full loop through `led_colors` (only meaningful with 2+ colors) — overrides the item's/`defaults.led_cycle_seconds`. |
@@ -332,13 +334,26 @@ the same three-tier chain: the format entry itself, then its parent item,
 then `defaults` — the first of those three that actually sets the field
 wins, else a hardcoded built-in default. This is checked by *presence*,
 not truthiness, so an explicit falsy value (`brightness: 0.0`,
-`led_colors: []`, `before_text: ""`) at whichever tier sets it first is a
+`led_colors: []`, `top_text: ""`) at whichever tier sets it first is a
 real, final answer — it does not fall through to a later tier. Practical
 use: put shared colors/text/brightness on an item once, and only the
 setting that actually varies (typically `type`/`precision`) on each of its
 individual formats; a format can still override any inherited setting, or
 explicitly opt back out with a falsy value of its own. See DESIGN.md
 "Setting resolution" for the full rationale.
+
+**Percentage layout values:** each of these eight fields —
+`margin_top`/`margin_bottom`/`margin_left`/`margin_right`/
+`gap_before_value`/`gap_after_value`/`top_text_height`/
+`bottom_text_height` — accepts either a plain number (pixels) or a
+string like `"12%"`, resolved against the full 320x172 landscape frame —
+`margin_left`/`margin_right` as a percentage of width, the other six as
+a percentage of height — always the *full* frame, not whatever space is
+left after other margins/heights are subtracted. Rounded to the nearest
+pixel. Mixing styles across tiers is fine (e.g. `defaults` sets
+`margin_left: "10%"`, one format overrides it with `margin_left: 20`) —
+resolution only cares which tier first sets the field, not what type its
+value is.
 
 **Skipping items/formats:** `skip` uses this exact same resolution chain
 (no special-casing) — a format with a resolved `skip` of `true` is
@@ -353,6 +368,18 @@ the upload script catches it before anything is sent to the device; the
 device falls back to its previous cache (or shows "No data" if there
 isn't one) if it ever receives one anyway (e.g. hand-edited directly on
 the board).
+
+**Layout sanity warnings:** `upload_json.py` also prints a `WARNING:` for
+any non-skipped format whose *resolved* margins/gaps/text-heights
+(percentages included) look likely to produce a cramped or blank
+display — vertical (`margin_top` + `margin_bottom` +
+`gap_before_value`/`gap_after_value` + `top_text_height`/
+`bottom_text_height`, counting a gap/height only when its adjacent text
+is non-empty) or horizontal (`margin_left` + `margin_right`) using up
+more than 70% of the frame's height/width respectively, with stronger
+wording once the total reaches 100% (guaranteed blank/invisible). These
+never block the upload, no matter how large the total — see DESIGN.md
+"Percentage layout values" > "Layout sanity warnings".
 
 Notes:
 
@@ -560,21 +587,32 @@ tiny font up ourselves — `device/lib/text.py`:
    just scratch space to get the raw glyph bitmap out of
    `framebuf.text()`; nothing here touches the display.
 2. Walk every pixel of that tiny bitmap. For each "on" (foreground)
-   pixel, draw a solid `scale × scale` block at the corresponding
-   position in the real, full-color destination framebuffer —
-   i.e. nearest-neighbor upscaling, one square block per original
-   pixel. This is why large text looks visibly blocky/pixelated rather
-   than smooth — an inherent property of blowing up an 8×8 source this
-   way, not a bug (see the scaled-text test results earlier in this
-   project's development).
+   pixel, draw a solid block at the corresponding position in the real,
+   full-color destination framebuffer — nearest-neighbor upscaling. The
+   scale can be fractional, not just a whole number: each source pixel's
+   destination block edges are rounded independently
+   (`round(n * scale)`), so blocks come out `floor(scale)` or
+   `ceil(scale)` pixels wide/tall in whatever mix averages out to the
+   requested (possibly fractional) scale, rather than every block being
+   forced to the exact same integer size. This is still why large text
+   looks visibly blocky/pixelated rather than smooth — an inherent
+   property of blowing up an 8×8 source this way, not a bug (see the
+   scaled-text test results earlier in this project's development) — but
+   it does mean a string no longer has to jump straight from one integer
+   size to the next; it can land anywhere in between if that's what
+   actually fits its box.
 3. The scale factor isn't fixed: `best_fit_scale()` computes the
-   *largest* integer scale at which a given string fits a given pixel
-   box, so a short value like `"3.21"` renders large while a longer
-   one like `"3-05:42:11"` automatically comes out smaller, using the
-   exact same source glyphs and code path either way — this is what
-   lets `before_text`/value/`after_text` each size themselves to fill
-   whatever box `render.py`'s layout gives them (see "JSON format
-   reference" above).
+   *largest* scale (int or float) at which a given string fits a given
+   pixel box — computed directly via division rather than searched,
+   since it's no longer restricted to whole numbers — so a short value
+   like `"3.21"` renders large while a longer one like `"3-05:42:11"`
+   automatically comes out smaller, using the exact same source glyphs
+   and code path either way. This is what lets `top_text`/value/
+   `bottom_text` each size themselves to fill whatever box `render.py`'s
+   layout gives them (see "JSON format reference" above) — including
+   using the full width of a wide `top_text_height`/`bottom_text_height`
+   box even when the string's length means the old integer-only scaling
+   would have been stuck one size too small.
 
 All of this happens against the in-memory frame — the scaled blocks
 are drawn via `fb.fill_rect()` calls on the destination
@@ -796,8 +834,8 @@ to break it down by file.
       device's f-strings silently ignore the standard `,` flag),
       confirmed working end-to-end on real hardware
 - [x] Item-level setting tier added: any format-level setting (colors,
-      `brightness`, `led_colors`/`led_cycle_seconds`, `before_text`/
-      `after_text`, `type`/`precision`/`absolute_value`/`commas`) can now
+      `brightness`, `led_colors`/`led_cycle_seconds`, `top_text`/
+      `bottom_text`, `type`/`precision`/`absolute_value`/`commas`) can now
       also be set on the parent item, shared across all its formats
       (fmt -> item -> defaults resolution, `device/lib/settings.py`),
       confirmed working end-to-end on real hardware

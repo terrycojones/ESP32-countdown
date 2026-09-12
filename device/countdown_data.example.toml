@@ -20,9 +20,9 @@ margin_right = 4
 gap_before_value = 4
 gap_after_value = 4
 background = "#000000"
-before_color = "#ffffff"
+top_text_color = "#ffffff"
 value_color = "#ffffff"
-after_color = "#ffffff"
+bottom_text_color = "#ffffff"
 
 [[items]]
 target = "2026-09-20T12:00:00Z"
@@ -30,13 +30,13 @@ display_seconds = 10
 # Any format-level setting can also be set here, on the item itself --
 # shared across all of this item's formats instead of repeated on each one
 # (see README.md "Setting resolution"). Both formats below inherit this
-# before_text; neither needs to repeat it.
-before_text = "Sample Event"
+# top_text; neither needs to repeat it.
+top_text = "Sample Event"
 
 [[items.formats]]
 type = "days"
 precision = 2
-after_text = "days away"
+bottom_text = "days away"
 background = "#001030"
 value_color = "#ffcc00"
 # Long-press BOOT to try this out -- the onboard LED loops through these
@@ -46,10 +46,10 @@ led_cycle_seconds = 3
 
 [[items.formats]]
 type = "dhms"
-# No before_text/after_text here -- before_text is inherited from the item
-# above, and after_text falls all the way through to its "" hardcoded
+# No top_text/bottom_text here -- top_text is inherited from the item
+# above, and bottom_text falls all the way through to its "" hardcoded
 # default (no item/defaults value set either), same net effect as this
-# format explicitly setting after_text = "" itself.
+# format explicitly setting bottom_text = "" itself.
 
 [[items]]
 target = "2027-01-01T00:00:00Z"
@@ -58,5 +58,5 @@ display_seconds = 8
 [[items.formats]]
 type = "days"
 precision = 1
-before_text = "New Year"
-after_text = ""
+top_text = "New Year"
+bottom_text = ""

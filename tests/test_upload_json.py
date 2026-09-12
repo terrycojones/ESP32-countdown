@@ -18,19 +18,18 @@ def _item(**overrides):
 
 def test_valid_with_url_has_no_warning():
     data = {"meta": {"url": "https://example.com/x.json"}, "items": [_item()]}
-    assert upload_json.validate_countdown_json(data) is None
+    assert upload_json.validate_countdown_json(data) == []
 
 
 def test_missing_url_warns_but_does_not_raise():
     data = {"items": [_item()]}
-    warning = upload_json.validate_countdown_json(data)
-    assert warning is not None
-    assert "meta.url" in warning
+    warnings = upload_json.validate_countdown_json(data)
+    assert any("meta.url" in w for w in warnings)
 
 
 def test_no_meta_key_at_all_also_warns():
     data = {"items": [_item()]}
-    assert upload_json.validate_countdown_json(data) is not None
+    assert upload_json.validate_countdown_json(data) != []
 
 
 def test_no_items_raises():
@@ -86,12 +85,13 @@ def test_defaults_skip_true_raises():
 
 def test_format_skip_overrides_item_skip_back_to_visible():
     data = {"items": [_item(skip=True, formats=[{"type": "dhms", "skip": False}])]}
-    assert upload_json.validate_countdown_json(data) is not None  # no meta.url -> warning, not an error
+    # no meta.url -> warning, not an error
+    assert upload_json.validate_countdown_json(data) != []
 
 
 def test_one_of_two_items_skipped_is_still_visible():
     data = {"items": [_item(skip=True), _item()]}
-    assert upload_json.validate_countdown_json(data) is not None
+    assert upload_json.validate_countdown_json(data) != []
 
 
 @pytest.mark.parametrize(
@@ -110,6 +110,129 @@ def test_resolved_skip_precedence(fmt_overrides, item_overrides, defaults, expec
     item = _item(formats=[fmt], **item_overrides)
     data = {"defaults": defaults, "items": [item]}
     assert upload_json._has_visible_content(data) is expected
+
+
+# -- layout sanity warnings (margins/gaps) -- see DESIGN.md "Percentage
+# layout values". Always warnings, never a ValidationError, no matter how
+# large the total (even 100%+, a guaranteed-blank display).
+
+
+@pytest.mark.parametrize(
+    ("margin_top", "expect_warning", "expect_blank_wording"),
+    [
+        (0, False, False),
+        (100, False, False),  # 100/172 =~ 58% -- under the 70% threshold
+        (130, True, False),  # =~ 76% -- over the threshold, not yet 100%
+        (172, True, True),  # exactly 100% -- guaranteed blank
+        (200, True, True),  # over 100% -- still just a (blank) warning
+    ],
+)
+def test_vertical_margin_warning_thresholds(
+    margin_top, expect_warning, expect_blank_wording
+):
+    data = {
+        "defaults": {"margin_top": margin_top, "margin_bottom": 0},
+        "items": [_item(formats=[{"type": "dhms"}])],
+    }
+    warnings = upload_json._layout_warnings(data)
+    assert bool(warnings) is expect_warning
+    if expect_warning:
+        assert ("blank" in warnings[0]) is expect_blank_wording
+
+
+@pytest.mark.parametrize(
+    ("margin_left", "expect_warning", "expect_guaranteed_wording"),
+    [
+        (0, False, False),
+        (200, False, False),  # 200/320 = 62.5% -- under the threshold
+        (250, True, False),  # =~ 78% -- over the threshold, not yet 100%
+        (320, True, True),  # exactly 100% -- guaranteed nothing visible
+    ],
+)
+def test_horizontal_margin_warning_thresholds(
+    margin_left, expect_warning, expect_guaranteed_wording
+):
+    data = {
+        "defaults": {"margin_left": margin_left, "margin_right": 0},
+        "items": [_item(formats=[{"type": "dhms"}])],
+    }
+    warnings = upload_json._layout_warnings(data)
+    assert bool(warnings) is expect_warning
+    if expect_warning:
+        assert ("nothing will be visible" in warnings[0]) is expect_guaranteed_wording
+
+
+def test_gap_only_counts_when_its_text_is_present():
+    # gap_before_value is huge, but there's no top_text for it to gap
+    # against -- render.py never applies it (see device/lib/render.py),
+    # so it shouldn't count towards the vertical total either.
+    data = {
+        "defaults": {"gap_before_value": 200},
+        "items": [_item(formats=[{"type": "dhms"}])],
+    }
+    assert upload_json._layout_warnings(data) == []
+
+
+def test_gap_counts_once_its_text_is_present():
+    data = {
+        "defaults": {"gap_before_value": 200},
+        "items": [_item(formats=[{"type": "dhms", "top_text": "T-minus"}])],
+    }
+    warnings = upload_json._layout_warnings(data)
+    assert len(warnings) == 1
+    assert "blank" in warnings[0]
+
+
+def test_text_height_counts_towards_vertical_total():
+    data = {
+        "defaults": {"top_text_height": 172},
+        "items": [_item(formats=[{"type": "dhms", "top_text": "T-minus"}])],
+    }
+    warnings = upload_json._layout_warnings(data)
+    assert len(warnings) == 1
+    assert "blank" in warnings[0]
+
+
+def test_text_height_ignored_when_its_text_is_absent():
+    data = {
+        "defaults": {"top_text_height": 172},  # would otherwise be blank
+        "items": [_item(formats=[{"type": "dhms"}])],  # no top_text
+    }
+    assert upload_json._layout_warnings(data) == []
+
+
+def test_skipped_format_excluded_from_layout_warnings():
+    data = {
+        "defaults": {"margin_top": 172},  # would otherwise warn
+        "items": [_item(formats=[{"type": "dhms", "skip": True}])],
+    }
+    assert upload_json._layout_warnings(data) == []
+
+
+def test_percentage_and_equivalent_pixels_warn_the_same():
+    pct_data = {
+        "defaults": {"margin_top": "80%", "margin_bottom": 0},
+        "items": [_item(formats=[{"type": "dhms"}])],
+    }
+    px_margin_top = round(upload_json.FRAME_HEIGHT * 0.8)
+    px_data = {
+        "defaults": {"margin_top": px_margin_top, "margin_bottom": 0},
+        "items": [_item(formats=[{"type": "dhms"}])],
+    }
+    pct_warnings = upload_json._layout_warnings(pct_data)
+    px_warnings = upload_json._layout_warnings(px_data)
+    assert pct_warnings == px_warnings
+
+
+def test_validate_countdown_json_combines_url_and_layout_warnings():
+    data = {
+        "defaults": {"margin_top": 172},
+        "items": [_item(formats=[{"type": "dhms"}])],
+    }
+    warnings = upload_json.validate_countdown_json(data)
+    assert len(warnings) == 2
+    assert any("meta.url" in w for w in warnings)
+    assert any("blank" in w for w in warnings)
 
 
 # -- load_config: JSON and TOML input --
@@ -155,7 +278,8 @@ def test_load_config_toml_missing_url_omits_key_entirely(tmp_path):
     f.write_text('[meta]\nrefetch_after_seconds = 3600\n')
     data = upload_json.load_config(f)
     assert "url" not in data["meta"]
-    assert upload_json.validate_countdown_json({**data, "items": [_item()]}) is not None  # warns
+    full_data = {**data, "items": [_item()]}
+    assert upload_json.validate_countdown_json(full_data) != []  # warns
 
 
 # -- prepare_upload_path --

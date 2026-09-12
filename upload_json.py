@@ -46,6 +46,24 @@ import port_config
 
 REMOTE_PATH = ":countdown_data.json"
 
+# The device's fixed landscape frame size -- see DESIGN.md "Display
+# orientation" and device/lib/display.py (WIDTH/HEIGHT there is the source
+# of truth; duplicated here, standalone, for the same reason as
+# _resolved_skip() below -- device/lib/display.py imports `machine`, which
+# doesn't exist off-device).
+FRAME_WIDTH = 320
+FRAME_HEIGHT = 172
+
+# Default top_text/bottom_text box height (px) when top_text_height/
+# bottom_text_height doesn't override it -- mirrors
+# device/lib/render.py's DEFAULT_TEXT_HEIGHT, duplicated here for the same
+# reason as FRAME_WIDTH/FRAME_HEIGHT above.
+DEFAULT_TEXT_HEIGHT = 24
+
+# Warn once a config's resolved margins/gaps use up more than this fraction
+# of the relevant frame dimension -- see _layout_warnings() below.
+LAYOUT_WARN_FRACTION = 0.70
+
 
 def load_config(path):
     """Loads a countdown config file -- JSON or TOML, detected by
@@ -103,16 +121,32 @@ class ValidationError(Exception):
     pass
 
 
-def _resolved_skip(fmt, item, defaults):
-    """format -> item -> defaults resolution for just the 'skip' field --
-    same rule as device/lib/settings.resolve() (first of the three that
-    actually sets the key wins), reimplemented standalone here rather than
-    importing device/lib (which targets MicroPython) into this host
-    script just for one field. See DESIGN.md 'skip'."""
+def _resolved(key, fmt, item, defaults, fallback=None):
+    """format -> item -> defaults resolution for `key` -- same rule as
+    device/lib/settings.resolve() (first of the three that actually sets
+    the key wins), reimplemented standalone here rather than importing
+    device/lib (which targets MicroPython) into this host script."""
     for source in (fmt, item, defaults):
-        if source and "skip" in source:
-            return source["skip"]
-    return False
+        if source and key in source:
+            return source[key]
+    return fallback
+
+
+def _resolved_skip(fmt, item, defaults):
+    """Resolves just the 'skip' field -- see DESIGN.md 'skip'."""
+    return _resolved("skip", fmt, item, defaults, False)
+
+
+def _resolved_px(key, fmt, item, defaults, basis, fallback=0):
+    """Resolves `key`, then interprets the result as a pixel count against
+    `basis` (FRAME_WIDTH or FRAME_HEIGHT) -- same percentage-or-pixels rule
+    as device/lib/render.py's _resolve_px(), reimplemented standalone here
+    for the same reason as _resolved() above. See DESIGN.md 'Percentage
+    layout values'."""
+    value = _resolved(key, fmt, item, defaults, fallback)
+    if isinstance(value, str):
+        return round(basis * float(value.rstrip("%")) / 100)
+    return value
 
 
 def _has_visible_content(data):
@@ -127,14 +161,116 @@ def _has_visible_content(data):
     return False
 
 
+def _layout_warnings(data):
+    """Returns a list of non-fatal warning strings (empty if none) for any
+    non-skipped format whose resolved margins/gaps/text-heights look
+    likely to produce a cramped or entirely blank display -- see
+    DESIGN.md "Percentage layout values". Skipped formats are excluded
+    since they never actually render (see 'skip' above).
+
+    Deliberately warnings, not ValidationErrors, at every fraction --
+    including a total of 100%+ (guaranteed blank), which just gets more
+    emphatic wording. The config might still be useful as-is (e.g. a
+    template being tuned interactively), so nothing here blocks the
+    upload."""
+    defaults = data.get("defaults", {})
+    warnings = []
+    for item in data.get("items", []):
+        for fmt in item.get("formats", []):
+            if _resolved_skip(fmt, item, defaults):
+                continue
+
+            top_text = _resolved("top_text", fmt, item, defaults, "")
+            bottom_text = _resolved("bottom_text", fmt, item, defaults, "")
+            margin_top = _resolved_px("margin_top", fmt, item, defaults, FRAME_HEIGHT)
+            margin_bottom = _resolved_px(
+                "margin_bottom", fmt, item, defaults, FRAME_HEIGHT
+            )
+            gap_before = (
+                _resolved_px("gap_before_value", fmt, item, defaults, FRAME_HEIGHT)
+                if top_text
+                else 0
+            )
+            gap_after = (
+                _resolved_px("gap_after_value", fmt, item, defaults, FRAME_HEIGHT)
+                if bottom_text
+                else 0
+            )
+            top_h = (
+                _resolved_px(
+                    "top_text_height",
+                    fmt,
+                    item,
+                    defaults,
+                    FRAME_HEIGHT,
+                    DEFAULT_TEXT_HEIGHT,
+                )
+                if top_text
+                else 0
+            )
+            bottom_h = (
+                _resolved_px(
+                    "bottom_text_height",
+                    fmt,
+                    item,
+                    defaults,
+                    FRAME_HEIGHT,
+                    DEFAULT_TEXT_HEIGHT,
+                )
+                if bottom_text
+                else 0
+            )
+            margin_left = _resolved_px("margin_left", fmt, item, defaults, FRAME_WIDTH)
+            margin_right = _resolved_px(
+                "margin_right", fmt, item, defaults, FRAME_WIDTH
+            )
+
+            vertical = (
+                margin_top + margin_bottom + gap_before + gap_after + top_h + bottom_h
+            )
+            horizontal = margin_left + margin_right
+            fmt_type = _resolved("type", fmt, item, defaults)
+            label = f"target={item.get('target')!r} type={fmt_type!r}"
+
+            v_fraction = vertical / FRAME_HEIGHT
+            if v_fraction >= 1.0:
+                warnings.append(
+                    f"{label}: vertical margins+gaps ({vertical}px) use up the "
+                    f"entire {FRAME_HEIGHT}px frame height -- the value box will "
+                    f"be blank."
+                )
+            elif v_fraction > LAYOUT_WARN_FRACTION:
+                warnings.append(
+                    f"{label}: vertical margins+gaps ({vertical}px, "
+                    f"{v_fraction:.0%} of {FRAME_HEIGHT}px) leave little room for "
+                    f"the value -- probably won't look sensible."
+                )
+
+            h_fraction = horizontal / FRAME_WIDTH
+            if h_fraction >= 1.0:
+                warnings.append(
+                    f"{label}: left+right margins ({horizontal}px) use up the "
+                    f"entire {FRAME_WIDTH}px frame width -- nothing will be "
+                    f"visible."
+                )
+            elif h_fraction > LAYOUT_WARN_FRACTION:
+                warnings.append(
+                    f"{label}: left+right margins ({horizontal}px, "
+                    f"{h_fraction:.0%} of {FRAME_WIDTH}px) leave little room -- "
+                    f"probably won't look sensible."
+                )
+    return warnings
+
+
 def validate_countdown_json(data):
     """Raises ValidationError if `data` doesn't meet the minimum schema
     (see DESIGN.md 'JSON schema'): at least one item, each with at least
     one format, and at least one format that survives 'skip' filtering
     (see DESIGN.md 'skip') -- catches "everything is marked skip" at
     upload time rather than only after the device rejects it and shows
-    'No data'. Returns a warning string (not fatal) if meta.url is
-    missing, else None -- see DESIGN.md 'Data lifecycle'."""
+    'No data'. Returns a (possibly empty) list of non-fatal warning
+    strings: a missing meta.url (see DESIGN.md 'Data lifecycle'), plus any
+    from _layout_warnings() (see DESIGN.md 'Percentage layout values')."""
     items = data.get("items", [])
     if not items:
         raise ValidationError("JSON has no items -- refusing to upload.")
@@ -147,12 +283,14 @@ def validate_countdown_json(data):
         raise ValidationError(
             "every item/format is marked skip -- nothing would be displayed, refusing to upload."
         )
+    warnings = []
     if not data.get("meta", {}).get("url"):
-        return (
+        warnings.append(
             "this JSON has no meta.url -- the device will NOT auto-refetch. "
             "Updates will only happen via another manual upload. (See DESIGN.md 'Data lifecycle'.)"
         )
-    return None
+    warnings.extend(_layout_warnings(data))
+    return warnings
 
 
 def run_upload_command(command_template, path):
@@ -217,11 +355,11 @@ def main():
     data = load_config(config_path)
 
     try:
-        warning = validate_countdown_json(data)
+        warnings = validate_countdown_json(data)
     except ValidationError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
-    if warning:
+    for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
 
     upload_path, temp_dir = prepare_upload_path(config_path, data, args.json_out, args.upload)
