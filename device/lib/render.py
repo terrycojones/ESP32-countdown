@@ -34,14 +34,14 @@ def _resolve_px(key, fmt, item, defaults, basis, fallback=0):
     return value
 
 
-def _draw_centered(fb, s, box_x, box_y, box_w, box_h, color):
+def _draw_centered(fb, s, box_x, box_y, box_w, box_h, color, proportional=False):
     if not s:
         return
-    scale = text.best_fit_scale(s, box_w, box_h)
-    w, h = text.measure(s, scale)
+    scale = text.best_fit_scale(s, box_w, box_h, proportional=proportional)
+    w, h = text.measure(s, scale, proportional=proportional)
     x = box_x + (box_w - w) // 2
     y = box_y + (box_h - h) // 2
-    text.draw_scaled_text(fb, s, x, y, scale, color)
+    text.draw_scaled_text(fb, s, x, y, scale, color, proportional=proportional)
 
 
 def render_item(fb, width, height, item, defaults, fmt, value_str):
@@ -66,6 +66,9 @@ def render_item(fb, width, height, item, defaults, fmt, value_str):
     value_color = _resolve_color("value_color", fmt, item, defaults, FALLBACK_COLOR)
     bottom_text_color = _resolve_color(
         "bottom_text_color", fmt, item, defaults, FALLBACK_COLOR
+    )
+    proportional_font = settings.resolve(
+        "proportional_font", fmt, item, defaults, False
     )
 
     fb.fill(bg)
@@ -98,9 +101,25 @@ def render_item(fb, width, height, item, defaults, fmt, value_str):
     value_h = max(0, value_bottom - value_top)
 
     _draw_centered(
-        fb, top_text, content_x, content_top, content_w, top_h, top_text_color
+        fb,
+        top_text,
+        content_x,
+        content_top,
+        content_w,
+        top_h,
+        top_text_color,
+        proportional=proportional_font,
     )
-    _draw_centered(fb, value_str, content_x, value_top, content_w, value_h, value_color)
+    _draw_centered(
+        fb,
+        value_str,
+        content_x,
+        value_top,
+        content_w,
+        value_h,
+        value_color,
+        proportional=proportional_font,
+    )
     _draw_centered(
         fb,
         bottom_text,
@@ -109,4 +128,5 @@ def render_item(fb, width, height, item, defaults, fmt, value_str):
         content_w,
         bottom_h,
         bottom_text_color,
+        proportional=proportional_font,
     )

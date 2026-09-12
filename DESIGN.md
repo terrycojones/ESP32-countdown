@@ -80,12 +80,12 @@ Notes:
   entry in its own `formats` list.
 - Every setting a format entry can have (`type`, `precision`,
   `absolute_value`, `commas`, `top_text`, `bottom_text`, the four color
-  fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`, and the
-  eight margin/gap/text-height fields) may *also* be set directly on the
-  parent `item` -- see "Setting resolution" below. This is for formats
-  that mostly share the same look/text and differ only in, say,
-  `type`/`precision`: put the shared settings on the item once instead of
-  repeating them on every one of its formats.
+  fields, `brightness`, `led_colors`, `led_cycle_seconds`, `skip`,
+  `proportional_font`, and the eight margin/gap/text-height fields) may
+  *also* be set directly on the parent `item` -- see "Setting resolution"
+  below. This is for formats that mostly share the same look/text and
+  differ only in, say, `type`/`precision`: put the shared settings on the
+  item once instead of repeating them on every one of its formats.
 - `top_text`/`bottom_text` may be empty/omitted -- the vertical space
   that text would have used is instead given entirely to the countdown
   value's box (not split/redistributed elsewhere). An empty string is a
@@ -249,6 +249,23 @@ bitmap. This means a custom rendering module, using:
   applied uniformly to all three text regions, which naturally makes the
   value big since its box is the largest.
 - Colors as `#RRGGBB` hex strings in JSON, converted to RGB565 for drawing.
+
+A format entry may also set `"proportional_font": true` (default `false`,
+strict monospacing). The built-in 8x8 font gives narrow glyphs like `,`,
+`.`, and `:` a wide blank margin inside their cell so every character
+still advances by a fixed FONT_W -- with `proportional_font` on,
+`text.py` trims each character's blank margin down to whatever an
+ordinary digit ('0'-'9') already has on its widest side (found by
+rendering each glyph alone and scanning for lit columns, cached per
+character), rather than trimming to zero. That keeps the gap either side
+of a squeezed character the same as an ordinary digit-to-digit gap --
+tighter than the full monospace cell, but not jammed against its
+neighbors -- and leaves digits themselves untouched, since none of them
+have more blank margin than this reference. A space has no ink for that
+margin scan to find, so it's handled separately: cut by ~20% (8 *
+0.8 = 6.4, which only rounds to a whole pixel column as 6, a 25% cut --
+there's no exact 20% at FONT_W's resolution) regardless of what's next to
+it.
 
 ## Value formats
 
