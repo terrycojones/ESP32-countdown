@@ -342,7 +342,10 @@ Each entry in a `formats` list:
 **Color names:** anywhere a `"#RRGGBB"` string is accepted (`background`,
 `top_text_color`, `value_color`, `bottom_text_color`, `led_colors`), you
 can instead use a CSS color name, e.g. `"cornflowerblue"` instead of
-`"#6495ed"` — case-insensitive. This is host-side only: `upload_json.py`
+`"#6495ed"` — case-insensitive, and spaces are tolerated too (CSS names
+are one word, so `"cornflower blue"` is looked up as typed, then again
+with spaces stripped if that fails, before giving up). This is host-side
+only: `upload_json.py`
 translates names to hex (via `color_names.py`) before the JSON is
 validated or uploaded, since the device's `colors.py` only ever parses
 hex. An unrecognized name stops the upload with an error naming the bad

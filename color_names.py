@@ -174,10 +174,16 @@ class UnknownColorNameError(ValueError):
 def resolve_color(value: str) -> str:
     """Returns `value` unchanged if it already looks like a "#RRGGBB" hex
     string, or the matching hex string if it's a recognized CSS color name
-    (case-insensitive). Raises UnknownColorNameError otherwise."""
+    (case-insensitive). CSS names are one word (e.g. "cornflowerblue"), so
+    if a space-separated variant like "cornflower blue" doesn't match as
+    typed, the spaces are stripped and looked up again before giving up.
+    Raises UnknownColorNameError if neither form matches."""
     if value.startswith("#"):
         return value
-    hex_value = NAME_TO_HEX.get(value.lower())
+    lowered = value.lower()
+    hex_value = NAME_TO_HEX.get(lowered)
+    if hex_value is None and " " in lowered:
+        hex_value = NAME_TO_HEX.get(lowered.replace(" ", ""))
     if hex_value is None:
         raise UnknownColorNameError(f"unknown color name: {value!r}")
     return hex_value

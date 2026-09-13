@@ -20,6 +20,24 @@ def test_unknown_name_raises():
         color_names.resolve_color("reddish")
 
 
+@pytest.mark.parametrize(
+    ("spaced", "expected_hex"),
+    [
+        ("cornflower blue", "#6495ed"),
+        ("rebecca purple", "#663399"),
+        ("light goldenrod yellow", "#fafad2"),
+        ("Cornflower Blue", "#6495ed"),  # spaces removed and case folded together
+    ],
+)
+def test_spaced_name_falls_back_to_spaceless_lookup(spaced, expected_hex):
+    assert color_names.resolve_color(spaced) == expected_hex
+
+
+def test_spaced_name_still_raises_if_spaceless_form_is_also_unknown():
+    with pytest.raises(color_names.UnknownColorNameError, match="not a color"):
+        color_names.resolve_color("not a color")
+
+
 def test_table_has_148_css_color4_names():
     # Sanity-checks the table size against the CSS Color Module Level 4
     # spec's named-color count (147 CSS/X11 keywords + "rebeccapurple"),
