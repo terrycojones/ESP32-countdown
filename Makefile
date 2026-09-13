@@ -84,6 +84,7 @@ reset:
 	uv run mpremote connect $(PORT) cp device/lib/led.py :lib/led.py
 	uv run mpremote connect $(PORT) cp device/lib/ledshow.py :lib/ledshow.py
 	uv run mpremote connect $(PORT) cp device/lib/settings.py :lib/settings.py
+	uv run mpremote connect $(PORT) cp device/lib/transitions.py :lib/transitions.py
 	uv run mpremote connect $(PORT) cp device/main.py :main.py
 	uv run mpremote connect $(PORT) reset
 	touch $@

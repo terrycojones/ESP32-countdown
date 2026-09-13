@@ -253,6 +253,59 @@ def test_validate_countdown_json_combines_url_and_layout_warnings():
     assert any("blank" in w for w in warnings)
 
 
+# -- _check_transitions: 'transition' must resolve to a known value --
+# (see DESIGN.md "Item transitions")
+
+
+@pytest.mark.parametrize("transition", ["from top", "from bottom", "replace"])
+def test_known_transition_value_does_not_raise(transition):
+    data = {"items": [_item(formats=[{"type": "dhms", "transition": transition}])]}
+    upload_json._check_transitions(data)  # does not raise
+
+
+def test_no_transition_set_anywhere_does_not_raise():
+    upload_json._check_transitions({"items": [_item()]})
+
+
+@pytest.mark.parametrize(
+    ("fmt_overrides", "item_overrides", "defaults"),
+    [
+        ({"transition": "sideways"}, {}, {}),
+        ({}, {"transition": "sideways"}, {}),
+        ({}, {}, {"transition": "sideways"}),
+    ],
+)
+def test_unknown_transition_value_raises_at_any_tier(fmt_overrides, item_overrides, defaults):
+    fmt = dict({"type": "dhms"}, **fmt_overrides)
+    item = _item(formats=[fmt], **item_overrides)
+    with pytest.raises(upload_json.ValidationError, match="sideways"):
+        upload_json._check_transitions({"defaults": defaults, "items": [item]})
+
+
+def test_format_level_transition_overrides_bad_item_level_value():
+    # item-level transition is nonsense, but the format itself overrides
+    # it back to a known value -- the resolved (format-level) value is
+    # what actually matters, so this must not raise.
+    item = _item(
+        transition="sideways",
+        formats=[{"type": "dhms", "transition": "from top"}],
+    )
+    upload_json._check_transitions({"items": [item]})
+
+
+def test_unknown_transition_error_names_the_bad_value_and_target():
+    item = _item(target="2099-06-01T00:00:00Z", transition="upside-down")
+    with pytest.raises(upload_json.ValidationError, match="upside-down") as exc_info:
+        upload_json._check_transitions({"items": [item]})
+    assert "2099-06-01T00:00:00Z" in str(exc_info.value)
+
+
+def test_validate_countdown_json_calls_check_transitions():
+    data = {"items": [_item(transition="sideways")]}
+    with pytest.raises(upload_json.ValidationError, match="sideways"):
+        upload_json.validate_countdown_json(data)
+
+
 # -- load_config: JSON and TOML input --
 
 

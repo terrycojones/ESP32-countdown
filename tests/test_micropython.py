@@ -5,14 +5,18 @@
 #
 # Sanity-checks colors.py / isotime.py / countdownfmt.py / countdown_data.py /
 # display.py's resolve_brightness / ledshow.py / render.py's
-# resolve_directional_text directly on the device's real MicroPython
-# interpreter, since subtle stdlib differences from CPython (str.format
-# support, integer/float precision, divmod with negatives) are worth
-# confirming rather than assuming. Importing display.py has no side
-# effects (no hardware is touched until init_display() is actually called),
-# so it's safe to import here just for resolve_brightness; same for led.py
-# (no hardware touched until init_led() is called), ledshow.py (pure math),
-# and render.py (framebuf-only, no direct display/SPI calls -- see text.py).
+# resolve_directional_text / transitions.py's resolve_transition_spec
+# directly on the device's real MicroPython interpreter, since subtle
+# stdlib differences from CPython (str.format support, integer/float
+# precision, divmod with negatives) are worth confirming rather than
+# assuming. Importing display.py has no side effects (no hardware is
+# touched until init_display() is actually called), so it's safe to
+# import here just for resolve_brightness; same for led.py (no hardware
+# touched until init_led() is called), ledshow.py (pure math), render.py
+# (framebuf-only, no direct display/SPI calls -- see text.py), and
+# transitions.py (its resolve_transition_spec() is pure math too -- run()
+# actually drives the display, so it's exercised on-device by hand
+# instead, not here).
 import time
 
 import colors
@@ -23,6 +27,7 @@ import isotime
 import ledshow
 import render
 import settings
+import transitions
 
 print("hex_to_rgb565('#ff0000') =", hex(colors.hex_to_rgb565("#ff0000")))
 assert colors.hex_to_rgb565("#ff0000") == 0xF800
@@ -506,5 +511,34 @@ threeq = ledshow.current_color([RED, BLUE], 1000, 750)
 assert quarter == threeq, "sine easing should be symmetric around each segment's midpoint"
 assert 0 < quarter[0] < 255 and 0 < quarter[2] < 255, "quarter-way through should be a genuine blend, not an endpoint"
 print("current_color OK")
+
+# -- transitions.resolve_transition_spec --
+assert transitions.resolve_transition_spec({}, {}, {}) == (None, None), (
+    "no transition anywhere -> no transition"
+)
+d, dur = transitions.resolve_transition_spec({"transition": "from top"}, {}, {})
+assert (d, dur) == ("from top", transitions.DEFAULT_TRANSITION_SECONDS), (d, dur)
+d, dur = transitions.resolve_transition_spec(
+    {}, {}, {"transition": "from bottom", "transition_seconds": 1.5}
+)
+assert (d, dur) == ("from bottom", 1.5), "defaults-level transition/transition_seconds"
+d, dur = transitions.resolve_transition_spec(
+    {}, {"transition": "from top", "transition_seconds": 2}, {"transition": "from bottom"}
+)
+assert (d, dur) == ("from top", 2), "item-level transition/transition_seconds override defaults"
+d, dur = transitions.resolve_transition_spec(
+    {"transition": "from bottom"}, {"transition": "from top"}, {}
+)
+assert d == "from bottom", "format-level transition overrides item"
+d, dur = transitions.resolve_transition_spec({"transition": "sideways"}, {}, {})
+assert (d, dur) == (None, None), "unrecognized transition value -> treated as no transition"
+d, dur = transitions.resolve_transition_spec(
+    {"transition": "replace"}, {}, {"transition": "from top"}
+)
+assert (d, dur) == (None, None), (
+    "'replace' at the format tier explicitly opts back out of the inherited "
+    "defaults-level 'from top', same as no transition at all"
+)
+print("resolve_transition_spec OK")
 
 print("ALL OK")

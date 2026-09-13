@@ -284,6 +284,7 @@ Top level:
 <tr><td><code>defaults.background</code>, <code>top_text_color</code>, <code>value_color</code>, <code>bottom_text_color</code></td><td><code>"#RRGGBB"</code> string, or a CSS color name (e.g. <code>"red"</code>) — see "Color names" below</td><td>no</td><td>Fallback colors for any item/format that doesn't specify its own — see "Setting resolution" below.</td></tr>
 <tr><td><code>defaults.brightness</code></td><td>number, <code>0.0</code>-<code>1.0</code></td><td>no</td><td>Fallback backlight brightness for any item/format that doesn't specify its own. Falls back further to a hardcoded default (0.5) if omitted here too.</td></tr>
 <tr><td><code>defaults.led_colors</code>, <code>led_cycle_seconds</code></td><td>array of <code>"#RRGGBB"</code> strings or CSS color names, number</td><td>no</td><td>Fallback LED light-show colors/cycle time for any item/format that doesn't specify its own — see below.</td></tr>
+<tr><td><code>defaults.transition</code>, <code>transition_seconds</code></td><td><code>"from top"</code>/<code>"from bottom"</code>/<code>"replace"</code> string, number (seconds)</td><td>no</td><td>Fallback item-rotation transition/duration for any item/format that doesn't specify its own — see "Item transitions" below.</td></tr>
 <tr><td><code>items</code></td><td>array</td><td><strong>yes</strong>, ≥1</td><td>The countdown events to cycle through.</td></tr>
 </table>
 
@@ -332,6 +333,8 @@ Each entry in a `formats` list:
 <tr><td><code>brightness</code></td><td>number, <code>0.0</code>-<code>1.0</code></td><td>no</td><td>Backlight brightness while this format is shown — overrides the item's/<code>defaults.brightness</code>. Applied the instant this format becomes active (item rotation or a BOOT-triggered format switch).</td></tr>
 <tr><td><code>led_colors</code></td><td>array of <code>"#RRGGBB"</code> strings or CSS color names — see "Color names" below</td><td>no</td><td>Overrides the item's/<code>defaults.led_colors</code>. One color → the onboard LED shows that fixed color while the light show is on and this format is active. Two or more → it smoothly loops through all of them in a closed cycle. No <code>led_colors</code> anywhere in the chain → LED off during this format. Only takes effect while the light show is toggled on (long-press BOOT), see the note below and "Onboard RGB LED needs R/G swapped" further down.</td></tr>
 <tr><td><code>led_cycle_seconds</code></td><td>number</td><td>no, default <code>4.0</code></td><td>Time for one full loop through <code>led_colors</code> (only meaningful with 2+ colors) — overrides the item's/<code>defaults.led_cycle_seconds</code>.</td></tr>
+<tr><td><code>transition</code></td><td><code>"from top"</code>, <code>"from bottom"</code>, or <code>"replace"</code></td><td>no</td><td>Overrides the item's/<code>defaults.transition</code>. When this item is rotated onto the screen, <code>"from top"</code>/<code>"from bottom"</code> wipes it in from the given edge instead of just appearing — see "Item transitions" below. <code>"replace"</code> explicitly opts back out to an instant appearance (the original behavior, and also what happens if <code>transition</code> isn't set anywhere in the chain) — useful to turn off an inherited <code>defaults.transition</code>/item-level transition for one specific item/format. Only applies to item rotation, not a BOOT-triggered format switch within the same item.</td></tr>
+<tr><td><code>transition_seconds</code></td><td>number (seconds)</td><td>no, default <code>0.5</code></td><td>How long the wipe should take — overrides the item's/<code>defaults.transition_seconds</code>. Only meaningful alongside a <code>transition</code> of <code>"from top"</code>/<code>"from bottom"</code>; "tries to" take this long, since it can't finish faster than the display link allows.</td></tr>
 <tr><td><code>proportional_font</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, narrow characters (<code>,</code>, <code>.</code>, <code>:</code>) are drawn with a tighter blank margin instead of the full monospace cell width — see "How the text is drawn" below.</td></tr>
 <tr><td><code>skip</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, drops this format entirely — it's removed before rotation/display ever sees it, as if it weren't in the config at all. Set on an item instead, it makes <em>every</em> format inherit <code>skip: true</code> by default, which in the ordinary case drops the whole item (it ends up with zero formats) — a specific format can still set <code>skip: false</code> to opt itself back in. See "Skipping items/formats" below.</td></tr>
 </table>
@@ -347,6 +350,23 @@ value and where it came from, rather than being silently passed through
 to a device that can't parse it. The recognized names are the CSS Color
 Module Level 4 spec's 148 named colors
 (https://www.w3.org/TR/css-color-4/#named-colors).
+
+**Item transitions:** setting `transition` (`"from top"` or `"from
+bottom"`) makes an item wipe onto the screen from that edge when it's
+rotated in, instead of just replacing the previous item's frame outright.
+`display_seconds` starts counting down only once the wipe finishes, not
+from when rotation began, so the item is fully visible for the whole
+configured duration either way. `transition_seconds` (seconds, default
+`0.5`) controls roughly how long the wipe takes — "roughly" because each
+step still has to actually reach the display, so it can't finish faster
+than that allows. Only applies to item rotation; a BOOT-triggered format
+switch within the same item is unaffected. Since the display keeps
+showing whatever it was last sent, "from top"/"from bottom" reveal the
+new item progressively from that edge without needing to actively redraw
+or erase the outgoing item at all. `transition: "replace"` is an explicit
+opt-out — same instant appearance as not setting `transition` at all —
+for overriding an inherited `defaults`/item-level transition back off on
+one specific item or format.
 
 **Setting resolution:** every field in the table above resolves through
 the same three-tier chain: the format entry itself, then its parent item,

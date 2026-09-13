@@ -457,6 +457,74 @@ Display update cadence (how often the value is recalculated/redrawn) is
   refetch's item-index reset alone is enough to make the LED catch up
   within one tick (~50ms).
 
+## Item transitions
+
+- A format (or its parent item, or `defaults`) may set `transition`
+  (`"from top"`, `"from bottom"`, or `"replace"`) and `transition_seconds`
+  (seconds, default 0.5) -- same fmt -> item -> defaults resolution as
+  every other setting, resolved from the *incoming* item's current format
+  at the moment it's rotated onto the screen. Only item rotation triggers
+  a transition; a BOOT-triggered format switch within the same item is
+  unaffected.
+- `transition: "replace"` is an explicit opt-out -- a real, present value
+  at whichever tier sets it, so it wins over an inherited
+  `defaults`/item-level `"from top"`/`"from bottom"` the same
+  presence-based way every other setting resolves (see "Setting
+  resolution"). Behaviorally identical to `transition` not being set
+  anywhere in the chain (both mean "just the plain instant blit, no
+  wipe") -- `resolve_transition_spec()` doesn't even need to special-case
+  it: any value other than `"from top"`/`"from bottom"` already falls
+  through to `(None, None)`, `"replace"` included.
+- Deliberately **not** a second off-screen frame buffer. `render.py`
+  renders the new item into the *same* `buf`/`fb` already used for a
+  plain redraw, exactly as before -- what changes is only how that
+  finished frame gets sent to the display. `st7789py.blit_buffer()`
+  already writes to an arbitrary rectangular window (`CASET`/`RASET`
+  under the hood, see device/lib/st7789py.py's `set_window()`), so
+  `transitions.run()` just sends `buf` to the display in a sequence of
+  growing windows from the chosen edge (`"from top"`: rows `[0:h]` for
+  growing `h`; `"from bottom"`: rows `[height-h:height]`) instead of one
+  window covering the whole screen at once.
+- This works with **zero extra memory** for two reasons specific to this
+  device, not general display facts: (1) `framebuf.FrameBuffer` packs
+  RGB565 rows contiguously, so a range of full-width rows is already a
+  contiguous slice of `buf` -- `memoryview(buf)[offset:offset+n]`, no
+  copying; (2) the ST7789 panel keeps showing whatever pixels it was last
+  sent, so the outgoing item's content needs no active redraw or erase at
+  all -- it simply stays on screen, undisturbed, until the growing window
+  reaches and overwrites it. (See README.md "Onboard RGB LED needs R/G
+  swapped" for the same "verify the specific hardware's real behavior"
+  spirit -- here confirmed by reasoning about the documented CASET/RASET
+  windowing + `framebuf`'s documented memory layout, rather than by a
+  wire-order-style empirical surprise.)
+- `transitions.run()` steps the reveal in fixed ~30ms increments
+  (`STEP_MS`), sleeping between blits to pace the whole wipe toward
+  `transition_seconds` -- "toward", not exactly, since each step's own
+  SPI blit time is real and counts against the budget, so it can never
+  finish faster than the display link allows.
+- Runs synchronously, blocking the main loop for the transition's whole
+  duration -- BOOT polling, the periodic refetch check, and the LED tick
+  all pause for that long. Accepted for a first version: transitions are
+  infrequent (once per item rotation) and short (sub-second by default),
+  and the loop already blocks for far longer during a Wi-Fi
+  connect/refetch with no reported issue.
+- `display_seconds` (how long the item then stays put) starts counting
+  only once the transition finishes, not from when rotation began --
+  `main.py` tracks this with a `pending_transition` variable set at
+  rotation and consumed by the next redraw, which resets `item_start` to
+  the post-transition time instead of the rotation time.
+- An unrecognized `transition` value is rejected at upload time
+  (`upload_json.py`'s `_check_transitions()`) before it ever reaches the
+  device. `transitions.resolve_transition_spec()` still degrades an
+  unrecognized value to "no transition" on-device rather than guessing or
+  crashing -- relevant only to data that arrives via a `meta.url` refetch,
+  which skips the upload-time check entirely.
+- Only "from top"/"from bottom" exist so far. A horizontal ("from
+  left"/"from right") transition would need real per-row copying instead
+  of a free contiguous slice (see "LED light show"-adjacent memory
+  discussion in this project's history) -- more involved, deferred unless
+  it's actually wanted.
+
 ## Wi-Fi
 
 - An ordered list of `{ssid, password}` entries in a gitignored config

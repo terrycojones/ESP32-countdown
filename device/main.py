@@ -16,6 +16,7 @@ import led
 import ledshow
 import render
 import text
+import transitions
 import wifi
 
 try:
@@ -128,6 +129,7 @@ press_start_ms = None  # set when a debounced press begins; classified on releas
 # same light show, just already toggled on from the first frame.
 light_show_active = bool((data.get("meta") or {}).get("LED_starts_on"))
 last_led_tick_ms = 0
+pending_transition = None  # (direction, duration_seconds), set on item rotation
 
 while True:
     now = time.time()
@@ -149,12 +151,20 @@ while True:
 
     items = data["items"]
     item = items[item_index]
+    defaults = data.get("defaults", {})
 
-    # -- item rotation (circular, independent of format cycling) --
+    # -- item rotation (circular, independent of format cycling). A
+    # transition (see DESIGN.md "Item transitions") delays item_start
+    # until the transition itself finishes -- display_seconds counts down
+    # only once the new item is fully on screen -- so it's set below,
+    # once we know whether one is happening. --
     if now - item_start >= item["display_seconds"]:
         item_index = (item_index + 1) % len(items)
-        item_start = now
         item = items[item_index]
+        new_fmt = item["formats"][format_indices[item_index]]
+        direction, duration = transitions.resolve_transition_spec(new_fmt, item, defaults)
+        pending_transition = (direction, duration) if direction else None
+        item_start = now  # overwritten below once a pending transition finishes
         last_draw_time = 0  # force immediate redraw of the new item
 
     # -- BOOT button: classified on release, by how long it was held. Short
@@ -181,7 +191,6 @@ while True:
 
     # -- redraw the value if its format's update interval has elapsed --
     fmt = item["formats"][format_indices[item_index]]
-    defaults = data.get("defaults", {})
     interval = countdownfmt.update_interval_seconds(fmt, item, defaults)
     if now - last_draw_time >= interval:
         display.set_brightness(d.backlight, display.resolve_brightness(fmt, item, defaults))
@@ -191,8 +200,14 @@ while True:
         render.render_item(
             fb, WIDTH, HEIGHT, item, defaults, fmt, value_str, is_negative
         )
-        display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
-        last_draw_time = now
+        if pending_transition:
+            direction, duration = pending_transition
+            transitions.run(d, buf, WIDTH, HEIGHT, direction, duration)
+            pending_transition = None
+            item_start = time.time()  # display_seconds starts only once the wipe finishes
+        else:
+            display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
+        last_draw_time = time.time()  # not `now` -- a transition can take a while
 
     # -- LED light show: independent tick rate from the value redraw above
     # (which can be far slower for low-precision "days" formats), driven by

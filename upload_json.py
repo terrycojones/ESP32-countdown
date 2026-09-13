@@ -71,6 +71,14 @@ DEFAULT_TEXT_HEIGHT = 24
 # of the relevant frame dimension -- see _layout_warnings() below.
 LAYOUT_WARN_FRACTION = 0.70
 
+# Recognized `transition` values -- see DESIGN.md "Item transitions" and
+# device/lib/transitions.py (not imported here: it pulls in display.py,
+# which imports MicroPython's `machine`, unavailable on the host).
+# "replace" is the explicit opt-out: no animation, same instant behavior
+# as before this feature existed -- useful to override an inherited
+# from-top/from-bottom back off for one specific item/format.
+KNOWN_TRANSITIONS = ("from top", "from bottom", "replace")
+
 
 def load_config(path):
     """Loads a countdown config file -- JSON or TOML, detected by
@@ -290,15 +298,37 @@ def _layout_warnings(data):
     return warnings
 
 
+def _check_transitions(data):
+    """Raises ValidationError if any format's resolved `transition` (fmt
+    -> item -> defaults, same chain as every other setting) isn't one of
+    KNOWN_TRANSITIONS. Unset/falsy is fine -- that just means no
+    transition. Caught here rather than left to the device: an
+    unrecognized value there just degrades to "no transition" silently
+    (see device/lib/transitions.resolve_transition_spec), which is worth
+    catching at upload time instead."""
+    defaults = data.get("defaults", {})
+    for item in data.get("items", []):
+        for fmt in item.get("formats", []):
+            transition = _resolved("transition", fmt, item, defaults)
+            if transition is not None and transition not in KNOWN_TRANSITIONS:
+                fmt_type = _resolved("type", fmt, item, defaults)
+                raise ValidationError(
+                    f"unknown transition {transition!r} (target={item.get('target')!r} "
+                    f"type={fmt_type!r}) -- must be one of {KNOWN_TRANSITIONS!r}."
+                )
+
+
 def validate_countdown_json(data):
     """Raises ValidationError if `data` doesn't meet the minimum schema
     (see DESIGN.md 'JSON schema'): at least one item, each with at least
     one format, and at least one format that survives 'skip' filtering
     (see DESIGN.md 'skip') -- catches "everything is marked skip" at
     upload time rather than only after the device rejects it and shows
-    'No data'. Returns a (possibly empty) list of non-fatal warning
-    strings: a missing meta.url (see DESIGN.md 'Data lifecycle'), plus any
-    from _layout_warnings() (see DESIGN.md 'Percentage layout values')."""
+    'No data'. Also raises if any format's resolved `transition` isn't a
+    recognized value (see _check_transitions()). Returns a (possibly
+    empty) list of non-fatal warning strings: a missing meta.url (see
+    DESIGN.md 'Data lifecycle'), plus any from _layout_warnings() (see
+    DESIGN.md 'Percentage layout values')."""
     items = data.get("items", [])
     if not items:
         raise ValidationError("JSON has no items -- refusing to upload.")
@@ -311,6 +341,7 @@ def validate_countdown_json(data):
         raise ValidationError(
             "every item/format is marked skip -- nothing would be displayed, refusing to upload."
         )
+    _check_transitions(data)
     warnings = []
     if not data.get("meta", {}).get("url"):
         warnings.append(
