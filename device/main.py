@@ -124,7 +124,9 @@ last_draw_time = 0
 last_boot_level = boot_btn.value()
 last_boot_change_ms = time.ticks_ms()
 press_start_ms = None  # set when a debounced press begins; classified on release
-light_show_active = False
+# meta.LED_starts_on skips the usual "long-press BOOT to turn it on" step --
+# same light show, just already toggled on from the first frame.
+light_show_active = bool((data.get("meta") or {}).get("LED_starts_on"))
 last_led_tick_ms = 0
 
 while True:

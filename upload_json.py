@@ -16,6 +16,12 @@ the server automatically), there's nothing left needing a persistent local
 copy -- it's written to a temp file instead and cleaned up afterward,
 unless --json-out is given explicitly (which always wins).
 
+Any color field (background, value_color, top_text_color,
+bottom_text_color, led_colors) may be given as a CSS color name ("red",
+"cornflowerblue", ...) instead of "#RRGGBB" hex -- see color_names.py.
+Names are translated to hex here, before validation/upload, since the
+device's own colors.py has no name table and only ever sees hex.
+
 Copying a file to the board interrupts main.py if it's running (see
 README.md "Uploading interrupts the running app"), so this resets the
 board afterward by default so the countdown resumes on its own. Pass
@@ -42,6 +48,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+import color_names
 import port_config
 
 REMOTE_PATH = ":countdown_data.json"
@@ -374,6 +381,12 @@ def main():
 
     config_path = Path(args.config_path)
     data = load_config(config_path)
+
+    try:
+        data = color_names.resolve_color_names(data)
+    except color_names.UnknownColorNameError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         warnings = validate_countdown_json(data)

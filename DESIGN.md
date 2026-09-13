@@ -417,8 +417,12 @@ Display update cadence (how often the value is recalculated/redrawn) is
   (mathematically a degenerate case of the general N-color loop, not a
   separately-implemented mode).
 - A long BOOT press toggles a single global on/off flag for the whole
-  light show; it does not change what's shown on the LCD or what short
-  press does. While on, the LED continuously reflects whichever
+  light show (`light_show_active`); it does not change what's shown on
+  the LCD or what short press does. `meta.LED_starts_on` (boolean,
+  default `false`) sets that flag's *initial* value at boot, so the show
+  can start already on without needing that first long press -- a later
+  long press still toggles it normally either way. While on, the LED
+  continuously reflects whichever
   item/format is *currently* active, updating automatically as items
   rotate or short-press cycles formats -- resolved fresh every LED tick,
   not cached at the moment the light show was turned on. A format with
@@ -440,8 +444,8 @@ Display update cadence (how often the value is recalculated/redrawn) is
   "Uploading interrupts the running app") -- without the explicit
   startup off, a light show left running before an upload would still
   be showing its last color on the new boot, even though
-  `light_show_active` itself already reinitializes to `False` in
-  software on every fresh run.
+  `light_show_active` itself already reinitializes in software on every
+  fresh run (to `False`, or to `True` if `meta.LED_starts_on` is set).
 - Deliberately **not** reset by a periodic remote refetch (`meta.url`,
   no reboot involved) that changes the data, even though that also
   resets `item_index`, `format_indices` to 0 -- an ongoing light show is

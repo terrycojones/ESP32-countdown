@@ -24,5 +24,10 @@ testpaths = ["tests"]
 # from device/lib/ that don't exist under plain CPython. Whitelisting the
 # host-side files explicitly here keeps pytest from trying (and failing)
 # to collect it.
-python_files = ["test_upload_json.py", "test_upload_wifi.py", "test_port_config.py"]
+python_files = [
+    "test_upload_json.py",
+    "test_upload_wifi.py",
+    "test_port_config.py",
+    "test_color_names.py",
+]
 pythonpath = ["."]

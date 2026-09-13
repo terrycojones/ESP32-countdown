@@ -613,3 +613,49 @@ def test_upload_flag_suppresses_manual_reminder(tmp_path, monkeypatch, capsys):
     upload_json.main()
 
     assert "Reminder" not in capsys.readouterr().out
+
+
+# -- main(): color names are translated to hex before validation/upload --
+# (see color_names.py; the device's own colors.py only ever parses hex)
+
+
+def test_main_translates_color_name_to_hex_in_written_json(tmp_path, monkeypatch):
+    toml_file = tmp_path / "events.toml"
+    toml_file.write_text(
+        '[meta]\n'
+        'url = "https://example.com/x.json"\n'
+        '\n'
+        '[[items]]\n'
+        'target = "2026-01-01T00:00:00Z"\n'
+        'display_seconds = 5\n'
+        'background = "cornflowerblue"\n'
+        'led_colors = ["red", "green"]\n'
+        '\n'
+        '[[items.formats]]\n'
+        'type = "dhms"\n'
+    )
+
+    monkeypatch.setattr(upload_json, "run_mpremote", lambda args, desc: None)
+    monkeypatch.setattr(sys, "argv", ["upload_json.py", str(toml_file), "--port", "/dev/fake", "--no-reset"])
+
+    upload_json.main()
+
+    with open(toml_file.with_suffix(".json")) as f:
+        written = json.load(f)
+    assert written["items"][0]["background"] == "#6495ed"
+    assert written["items"][0]["led_colors"] == ["#ff0000", "#008000"]
+
+
+def test_main_unknown_color_name_exits_with_error(tmp_path, monkeypatch, capsys):
+    json_file = tmp_path / "events.json"
+    json_file.write_text(
+        json.dumps({"items": [_item(background="notacolor")]})
+    )
+
+    monkeypatch.setattr(upload_json, "run_mpremote", lambda args, desc: None)
+    monkeypatch.setattr(sys, "argv", ["upload_json.py", str(json_file), "--port", "/dev/fake", "--no-reset"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        upload_json.main()
+    assert exc_info.value.code == 1
+    assert "notacolor" in capsys.readouterr().err
