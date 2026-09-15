@@ -3,6 +3,7 @@
 # -- copy this file there any time it changes, it is not auto-synced.
 #
 # See DESIGN.md for the full design this implements.
+import math
 import time
 
 import framebuf
@@ -38,6 +39,7 @@ DEBOUNCE_MS = 50
 POLL_MS = 20
 LONG_PRESS_MS = 800  # see README.md "LED light show" for why this threshold
 LED_TICK_MS = 50  # ~20Hz -- smooth without being wasteful; see ledshow.py
+MAX_KNOWN_NETWORKS_SHOWN = 3  # cap on the "Known networks:" status listing
 
 d = display.init_display()
 WIDTH, HEIGHT = display.WIDTH, display.HEIGHT
@@ -54,6 +56,9 @@ led_np = led.init_led()
 led.off(led_np)
 
 
+clock_synced = False  # set True the first time an NTP sync actually succeeds
+
+
 def show_message(msg):
     fb.fill(0x0000)
     scale = text.best_fit_scale(msg, WIDTH - 16, HEIGHT - 16)
@@ -66,15 +71,51 @@ def show_message(msg):
     display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
 
 
+def show_lines(lines, margin=16, line_gap=6):
+    """Like show_message(), but for several centered lines sharing one
+    scale (the largest that still fits every line within its equal share
+    of the screen) -- used for the clock-unsynced status screens below,
+    which need more than show_message()'s single line."""
+    fb.fill(0x0000)
+    max_w = WIDTH - 2 * margin
+    max_line_h = (HEIGHT - 2 * margin - line_gap * (len(lines) - 1)) / len(lines)
+    scale = min(text.best_fit_scale(line, max_w, max_line_h) for line in lines)
+    heights = [text.measure(line, scale)[1] for line in lines]
+    y = (HEIGHT - sum(heights) - line_gap * (len(lines) - 1)) // 2
+    for line, h in zip(lines, heights):
+        w, _ = text.measure(line, scale)
+        text.draw_scaled_text(fb, line, (WIDTH - w) // 2, y, scale, 0xFFFF)
+        y += h + line_gap
+    display.blit_rgb565(d, buf, 0, 0, WIDTH, HEIGHT)
+
+
+def show_wifi_not_found(retry_in_seconds):
+    """Shown once a connect attempt has failed and the clock is still
+    unsynced -- see the wifi_retry_seconds loop below. `retry_in_seconds`
+    (an int, ceiling-rounded by the caller so it never shows 0) is
+    redrawn every time it ticks down, so this is called often -- kept
+    cheap by only ever building one framebuffer's worth of text."""
+    lines = ["WiFi not found", "Known networks:"]
+    lines.extend(entry["ssid"] for entry in KNOWN_NETWORKS[:MAX_KNOWN_NETWORKS_SHOWN])
+    unit = "second" if retry_in_seconds == 1 else "seconds"
+    lines.append("Retrying in {} {}".format(retry_in_seconds, unit))
+    show_lines(lines)
+
+
 def connect_and_sync():
     """Connects to Wi-Fi (if any known networks) and syncs the clock via
     NTP. Returns True if connected (regardless of whether the NTP sync
-    itself succeeded) -- caller is responsible for disconnecting after."""
+    itself succeeded) -- caller is responsible for disconnecting after.
+    Updates the module-level `clock_synced` flag on success, which is what
+    the wifi_retry_seconds loop below checks to decide whether to keep
+    retrying."""
+    global clock_synced
     if not KNOWN_NETWORKS:
         return False
     if not wifi.connect(KNOWN_NETWORKS):
         return False
-    wifi.sync_time()
+    if wifi.sync_time():
+        clock_synced = True
     return True
 
 
@@ -113,14 +154,21 @@ if data is None:
 # attempt happens on the normal periodic schedule below instead -- no
 # special "try once at boot" case, refetch_after_seconds governs it from
 # here exactly like every later refetch.
+show_lines(["Connecting WiFi..."])
 if connect_and_sync():
     wifi.disconnect_and_off()
+wifi_retry_after = (data.get("meta") or {}).get("wifi_retry_seconds", 60)
+last_retry_countdown_shown = None
+if not clock_synced:
+    show_wifi_not_found(wifi_retry_after)
+    last_retry_countdown_shown = wifi_retry_after
 
 # -- Runtime state ----------------------------------------------------------
 item_index = 0
 format_indices = [0] * len(data["items"])
 item_start = time.time()
 last_refresh = time.time()
+last_wifi_retry = time.time()
 last_draw_time = 0
 last_boot_level = boot_btn.value()
 last_boot_change_ms = time.ticks_ms()
@@ -148,6 +196,51 @@ while True:
                 item_start = now
                 last_draw_time = 0
         last_refresh = now
+
+    # -- Wi-Fi/clock retry, only while the clock has never successfully
+    # synced -- meta.wifi_retry_seconds (default 60s), deliberately much
+    # tighter than refetch_after_seconds above: getting the clock right
+    # matters right away, not just on the ordinary daily-ish data cadence.
+    # Stops firing for good the moment a sync succeeds, so a healthy device
+    # falls back to relying on the refetch_after_seconds resync above --
+    # same power/heat reasoning as that cadence (see DESIGN.md "Wi-Fi").
+    # While unsynced, item rendering below is skipped entirely -- an
+    # un-synced clock makes every countdown value meaningless (see
+    # DESIGN.md "Not yet designed / deferred"), so a status screen is shown
+    # in its place instead of a wildly wrong number, with its own
+    # "Retrying in N seconds" countdown redrawn once per second (not every
+    # poll tick -- last_retry_countdown_shown dedupes that). A BOOT press
+    # here (debounced the same way as the item/LED controls below, but
+    # simpler -- fires on press, doesn't wait for release to classify a
+    # hold) skips straight past the countdown to an immediate retry,
+    # rather than making you wait out the full wifi_retry_seconds.
+    if not clock_synced:
+        wifi_retry_after = (data.get("meta") or {}).get("wifi_retry_seconds", 60)
+        elapsed = now - last_wifi_retry
+
+        level = boot_btn.value()
+        boot_pressed = False
+        if level != last_boot_level and time.ticks_diff(now_ms, last_boot_change_ms) > DEBOUNCE_MS:
+            last_boot_change_ms = now_ms
+            last_boot_level = level
+            boot_pressed = level == 0  # active-low: 0 means just pressed
+
+        if elapsed >= wifi_retry_after or boot_pressed:
+            show_lines(["Connecting WiFi..."])
+            if connect_and_sync():
+                wifi.disconnect_and_off()
+            last_wifi_retry = now
+            last_retry_countdown_shown = None
+            if not clock_synced:
+                show_wifi_not_found(wifi_retry_after)
+                last_retry_countdown_shown = wifi_retry_after
+        else:
+            remaining = math.ceil(wifi_retry_after - elapsed)
+            if remaining != last_retry_countdown_shown:
+                show_wifi_not_found(remaining)
+                last_retry_countdown_shown = remaining
+        time.sleep_ms(POLL_MS)
+        continue
 
     items = data["items"]
     item = items[item_index]

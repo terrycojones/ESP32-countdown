@@ -9,7 +9,8 @@ from the hardware bring-up covered in README.md.
 {
   "meta": {
     "url": "https://user:pass@example.com/countdown.json",
-    "refetch_after_seconds": 3600
+    "refetch_after_seconds": 3600,
+    "wifi_retry_seconds": 60
   },
   "defaults": {
     "margin_top": 4,
@@ -62,6 +63,14 @@ Notes:
 - `meta.refetch_after_seconds` controls how often (while `url` is present)
   the device reconnects to Wi-Fi, re-syncs the clock via NTP, and re-fetches
   the JSON.
+- `meta.wifi_retry_seconds` (default `60`) controls how often the device
+  retries connecting to Wi-Fi to sync the clock, but *only* until the first
+  time that sync actually succeeds -- e.g. after boot with the known
+  networks unreachable. Independent of `refetch_after_seconds` and applies
+  regardless of whether `url` is set, since the clock matters either way.
+  Once a sync succeeds, this retry stops for good and the device falls back
+  to whatever cadence `refetch_after_seconds` provides (or free-running, in
+  static mode -- see "Time / clock accuracy").
 - `defaults` gives fallback values for any setting a format entry (or its
   parent item) omits. Includes `background`, so all four color fields
   (`background`, `top_text_color`, `value_color`, `bottom_text_color`)
@@ -553,7 +562,14 @@ Display update cadence (how often the value is recalculated/redrawn) is
   overhead (a few seconds) is negligible against an hourly-ish refetch
   cadence. Also complements Waveshare's own warning about backlight heat.
 - If `meta.url` is absent (static mode), Wi-Fi is never reconnected after
-  boot -- see "Clock accuracy" for why this is fine.
+  boot on the `refetch_after_seconds` cadence -- see "Clock accuracy" for
+  why this is fine. `wifi_retry_seconds` (below) is the exception: it
+  still applies in static mode, since it's about clock accuracy, not data.
+- Separately, `meta.wifi_retry_seconds` (default 60s) drives a much
+  tighter reconnect-and-resync retry than `refetch_after_seconds`, but only
+  until the clock has synced at least once -- see "Time / clock accuracy"
+  for why getting off a wrong clock quickly matters more than the
+  steady-state resync cadence does.
 
 ## Time / clock accuracy
 
@@ -577,6 +593,19 @@ Display update cadence (how often the value is recalculated/redrawn) is
   under a minute of drift after a month -- judged not worth extra
   complexity to fix, since this mode is expected to be unlikely to be
   used for extended periods anyway.
+- **Before the clock has ever synced** (e.g. the known networks are out of
+  range at boot), `now` is MicroPython's un-set RTC default of
+  `2000-01-01T00:00:00`, which would otherwise render as a wildly wrong
+  countdown (confirmed in practice: a target a few days out displayed as
+  several thousand days). Rather than render that,
+  the device shows a full-screen status instead of any item: "Connecting
+  WiFi..." while a `wifi_retry_seconds` attempt (see "Wi-Fi") is in
+  progress, replaced by "WiFi not found" plus up to
+  `MAX_KNOWN_NETWORKS_SHOWN` (3) known SSIDs if it fails, or by normal
+  item rendering if it succeeds. This status fully replaces item
+  rendering (not a corner marker -- see "Not yet designed / deferred")
+  because an unsynced clock makes every item's value meaningless, not
+  just one detail of it.
 - Sub-second display smoothness (the 0.1s update floor) is purely
   cosmetic -- the underlying clock doesn't actually know "now" to better
   than about a second, so don't read meaning into fractional-second
@@ -677,5 +706,9 @@ This clean separation wasn't planned upfront as a portability goal -- it fell ou
 ## Not yet designed / deferred
 
 - A small on-screen error indicator (e.g. a colored corner marker) for
-  conditions like "last Wi-Fi connect failed" or "last fetch was invalid
-  JSON" -- requested for later, not part of the first build pass.
+  "last fetch was invalid JSON" -- requested for later, not part of the
+  first build pass. ("Last Wi-Fi connect failed," the other condition this
+  originally covered, is now handled -- see "Time / clock accuracy" --
+  but as a full-screen status while the clock is unsynced, not a corner
+  marker; a corner marker for a *later* connect failure, once the clock
+  has already synced once, is still deferred.)
