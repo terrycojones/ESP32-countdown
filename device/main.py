@@ -154,14 +154,19 @@ if data is None:
 # attempt happens on the normal periodic schedule below instead -- no
 # special "try once at boot" case, refetch_after_seconds governs it from
 # here exactly like every later refetch.
-show_lines(["Connecting WiFi..."])
-if connect_and_sync():
-    wifi.disconnect_and_off()
 wifi_retry_after = (data.get("meta") or {}).get("wifi_retry_seconds", 60)
 last_retry_countdown_shown = None
-if not clock_synced:
-    show_wifi_not_found(wifi_retry_after)
-    last_retry_countdown_shown = wifi_retry_after
+if not KNOWN_NETWORKS:
+    # Nothing to even attempt -- see the matching check in the main loop
+    # below for why this case never retries.
+    show_lines(["No known networks", "Run: make install-wifi-config"])
+else:
+    show_lines(["Connecting WiFi..."])
+    if connect_and_sync():
+        wifi.disconnect_and_off()
+    if not clock_synced:
+        show_wifi_not_found(wifi_retry_after)
+        last_retry_countdown_shown = wifi_retry_after
 
 # -- Runtime state ----------------------------------------------------------
 item_index = 0
@@ -213,7 +218,14 @@ while True:
     # here (debounced the same way as the item/LED controls below, but
     # simpler -- fires on press, doesn't wait for release to classify a
     # hold) skips straight past the countdown to an immediate retry,
-    # rather than making you wait out the full wifi_retry_seconds.
+    # rather than making you wait out the full wifi_retry_seconds. With no
+    # KNOWN_NETWORKS at all, there is nothing to retry -- connect_and_sync()
+    # would just fail instantly forever -- so this is skipped outright
+    # (the boot-time "No known networks" screen above is left showing).
+    if not clock_synced and not KNOWN_NETWORKS:
+        time.sleep_ms(POLL_MS)
+        continue
+
     if not clock_synced:
         wifi_retry_after = (data.get("meta") or {}).get("wifi_retry_seconds", 60)
         elapsed = now - last_wifi_retry

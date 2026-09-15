@@ -597,15 +597,25 @@ Display update cadence (how often the value is recalculated/redrawn) is
   range at boot), `now` is MicroPython's un-set RTC default of
   `2000-01-01T00:00:00`, which would otherwise render as a wildly wrong
   countdown (confirmed in practice: a target a few days out displayed as
-  several thousand days). Rather than render that,
-  the device shows a full-screen status instead of any item: "Connecting
-  WiFi..." while a `wifi_retry_seconds` attempt (see "Wi-Fi") is in
-  progress, replaced by "WiFi not found" plus up to
-  `MAX_KNOWN_NETWORKS_SHOWN` (3) known SSIDs if it fails, or by normal
+  several thousand days). Rather than render that, the device shows a
+  full-screen status instead of any item: "Connecting WiFi..." while a
+  `wifi_retry_seconds` attempt (see "Wi-Fi") is in progress, replaced by
+  "WiFi not found" / "Known networks:" / up to `MAX_KNOWN_NETWORKS_SHOWN`
+  (3) known SSIDs / "Retrying in N seconds" (a live countdown, ticking
+  down once a second to `wifi_retry_seconds`) if it fails, or by normal
   item rendering if it succeeds. This status fully replaces item
   rendering (not a corner marker -- see "Not yet designed / deferred")
   because an unsynced clock makes every item's value meaningless, not
-  just one detail of it.
+  just one detail of it. A BOOT press while this "not found" screen is
+  showing skips the rest of the countdown and retries immediately.
+- **If `wifi_config.py` has zero entries** (missing file, or an empty
+  `NETWORKS` list), there is nothing to retry -- `connect_and_sync()`
+  would just fail instantly every time -- so the device shows "No known
+  networks" / "Run: make install-wifi-config" once and never attempts a
+  connection or a BOOT-triggered retry at all. Fixing this always means
+  uploading a real `wifi_config.py` and rebooting (`make
+  install-wifi-config`), which re-evaluates `KNOWN_NETWORKS` from
+  scratch, so there's no in-session recovery path to wire up here.
 - Sub-second display smoothness (the 0.1s update floor) is purely
   cosmetic -- the underlying clock doesn't actually know "now" to better
   than about a second, so don't read meaning into fractional-second
