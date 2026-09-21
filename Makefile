@@ -36,9 +36,8 @@ reset:
 # itself). Reversible, but will overwrite any existing files at the same path.
 # NOTE: copying a file interrupts main.py if it's running, and does NOT
 # auto-resume it on its own (see README.md "Uploading interrupts the
-# running app") -- both install-python and install-wifi-config reset the
-# board afterward by default to actually resume it, the same way
-# upload_json.py does.
+# running app") -- install-python resets the board afterward by default
+# to actually resume it, the same way upload_json.py does.
 #
 # Separately: every display-touching test target below (test-display,
 # test-module, test-text, test-landscape, test-render) also resets the
@@ -54,7 +53,7 @@ reset:
 # clears this; the plain raw-REPL soft reset inside `mpremote run` does
 # not.
 
-.PHONY: install-python install-wifi-config test-display test-module test-text test-landscape test-micropython test-host test-render
+.PHONY: install-python test-display test-module test-text test-landscape test-micropython test-host test-render
 
 # Stamp file recording the last successful install-python run -- lets
 # test-module/test-text/test-micropython/test-render (below) depend on this
@@ -94,11 +93,6 @@ reset:
 # rides on.
 install-python: .stamp-python
 
-# Validates and copies the real (gitignored) device/wifi_config.py to the
-# board's filesystem root. See device/wifi_config.example.py for the format.
-install-wifi-config:
-	uv run python upload_wifi.py device/wifi_config.py --port $(PORT)
-
 # Runs device/test_display.py directly from the host without copying it to
 # the board -- good for quick iteration while tuning display parameters.
 # Resets first -- see the DEVICE FILESYSTEM note above.
@@ -134,7 +128,7 @@ test-landscape:
 test-micropython: .stamp-python
 	uv run mpremote connect $(PORT) run tests/test_micropython.py
 
-# Runs the host-side pytest suite (upload_json.py/upload_wifi.py/port_config.py
+# Runs the host-side pytest suite (upload_json.py/port_config.py
 # validation logic) -- pure Python, no device/PORT needed.
 test-host:
 	uv run pytest tests/

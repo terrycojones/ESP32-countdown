@@ -1,7 +1,7 @@
 # Shared helper for reading the device serial port from port.txt (see
 # README.md "Set your port once"). Not a package -- just a small module
-# imported directly by upload_json.py / upload_wifi.py, which both live at
-# the repo root alongside this file and port.txt.
+# imported directly by upload_json.py, which lives at the repo root
+# alongside this file and port.txt.
 from pathlib import Path
 
 FALLBACK_PORT = "/dev/cu.usbmodem1101"

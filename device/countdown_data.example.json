@@ -1,6 +1,10 @@
 {
   "meta": {
-    "refetch_after_seconds": 3600
+    "refetch_after_seconds": 3600,
+    "wifi_networks": [
+      {"ssid": "some-network", "password": "some-password"},
+      {"ssid": "another-network", "password": "another-password"}
+    ]
   },
   "defaults": {
     "margin_top": 4,

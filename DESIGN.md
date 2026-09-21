@@ -10,7 +10,10 @@ from the hardware bring-up covered in README.md.
   "meta": {
     "url": "https://user:pass@example.com/countdown.json",
     "refetch_after_seconds": 3600,
-    "wifi_retry_seconds": 60
+    "wifi_retry_seconds": 60,
+    "wifi_networks": [
+      {"ssid": "some-network", "password": "some-password"}
+    ]
   },
   "defaults": {
     "margin_top": 4,
@@ -71,6 +74,9 @@ Notes:
   Once a sync succeeds, this retry stops for good and the device falls back
   to whatever cadence `refetch_after_seconds` provides (or free-running, in
   static mode -- see "Time / clock accuracy").
+- `meta.wifi_networks` is an ordered list of `{ssid, password}` entries --
+  the device's only source of known Wi-Fi networks (see "Wi-Fi"). Absent
+  or empty means the device never attempts to connect at all.
 - `defaults` gives fallback values for any setting a format entry (or its
   parent item) omits. Includes `background`, so all four color fields
   (`background`, `top_text_color`, `value_color`, `bottom_text_color`)
@@ -448,7 +454,7 @@ Display update cadence (how often the value is recalculated/redrawn) is
   empirically (set it red, `mpremote ... reset`, still red). `main.py`
   now explicitly turns it off during startup so every boot begins from
   a known state. This matters specifically for config uploads
-  (`upload_json.py`, `upload_wifi.py`, the `install-*` Makefile targets),
+  (`upload_json.py`, the `install-*` Makefile targets),
   which always go through an `mpremote cp` + reset cycle (see
   "Uploading interrupts the running app") -- without the explicit
   startup off, a light show left running before an upload would still
@@ -536,9 +542,16 @@ Display update cadence (how often the value is recalculated/redrawn) is
 
 ## Wi-Fi
 
-- An ordered list of `{ssid, password}` entries in a gitignored config
-  file (`device/wifi_config.py`), with a committed `.example` template
-  documenting the format.
+- An ordered list of `{ssid, password}` entries, `meta.wifi_networks`, in
+  the same countdown data JSON/TOML the device already caches and
+  refetches -- not a separate file. (An earlier version kept these in a
+  gitignored `device/wifi_config.py`; folded into the JSON instead so
+  there's one config/upload path, not two. The tradeoff: while
+  `meta.url` is set, whatever server it points at also ends up holding
+  the real passwords, since `upload_json.py --upload` pushes the same
+  converted JSON both to the device and, via `meta.upload_command`, to
+  that server -- see README.md "Setting up Wi-Fi" for mitigating that
+  with Basic Auth on `meta.url` if it matters for your deployment.)
 - Connects at boot (for a clock sync -- see "Time / clock accuracy") and
   every `refetch_after_seconds` thereafter (for a clock sync *and* a JSON
   refetch, while `meta.url` is present): scans for visible networks, tries
@@ -608,14 +621,14 @@ Display update cadence (how often the value is recalculated/redrawn) is
   because an unsynced clock makes every item's value meaningless, not
   just one detail of it. A BOOT press while this "not found" screen is
   showing skips the rest of the countdown and retries immediately.
-- **If `wifi_config.py` has zero entries** (missing file, or an empty
-  `NETWORKS` list), there is nothing to retry -- `connect_and_sync()`
-  would just fail instantly every time -- so the device shows "No known
-  networks" / "Run: make install-wifi-config" once and never attempts a
-  connection or a BOOT-triggered retry at all. Fixing this always means
-  uploading a real `wifi_config.py` and rebooting (`make
-  install-wifi-config`), which re-evaluates `KNOWN_NETWORKS` from
-  scratch, so there's no in-session recovery path to wire up here.
+- **If `meta.wifi_networks` is absent or empty**, there is nothing to
+  retry -- `connect_and_sync()` would just fail instantly every time --
+  so the device shows "No known networks" / "Set meta.wifi_networks and
+  re-upload" once and never attempts a connection or a BOOT-triggered
+  retry at all. Fixing this always means uploading a config with real
+  `meta.wifi_networks` and rebooting, which re-evaluates `KNOWN_NETWORKS`
+  from the freshly-loaded cache, so there's no in-session recovery path
+  to wire up here.
 - Sub-second display smoothness (the 0.1s update floor) is purely
   cosmetic -- the underlying clock doesn't actually know "now" to better
   than about a second, so don't read meaning into fractional-second

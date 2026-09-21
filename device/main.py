@@ -20,20 +20,6 @@ import text
 import transitions
 import wifi
 
-try:
-    import wifi_config
-
-    KNOWN_NETWORKS = wifi_config.NETWORKS
-except Exception:
-    # Broad on purpose: a missing file raises ImportError, but a malformed
-    # wifi_config.py (e.g. a syntax error from hand-editing) would raise
-    # something else entirely -- either way, degrade to "no known
-    # networks" rather than letting the whole app crash at boot over a
-    # problem that's specific to Wi-Fi. upload_wifi.py validates
-    # the file before it ever reaches the device, but this is the backstop
-    # for a file edited directly on the board or otherwise gone wrong.
-    KNOWN_NETWORKS = []
-
 BOOT_PIN = 9  # see README.md "BOOT button" -- confirmed empirically
 DEBOUNCE_MS = 50
 POLL_MS = 20
@@ -131,6 +117,11 @@ def refresh_data(data):
 
 # -- Boot sequence --------------------------------------------------------
 data = countdown_data.load_cache()
+# meta.wifi_networks lives in the data cache itself now (see DESIGN.md
+# "Wi-Fi"), so a device with no cache at all has no known networks either
+# -- (data or {}) covers that case the same way every other meta.* lookup
+# below does.
+KNOWN_NETWORKS = (data or {}).get("meta", {}).get("wifi_networks", [])
 
 if data is None:
     # No cache at all, and (per DESIGN.md) no way to know a fetch URL
@@ -159,7 +150,7 @@ last_retry_countdown_shown = None
 if not KNOWN_NETWORKS:
     # Nothing to even attempt -- see the matching check in the main loop
     # below for why this case never retries.
-    show_lines(["No known networks", "Run: make install-wifi-config"])
+    show_lines(["No known networks", "Set meta.wifi_networks", "and re-upload"])
 else:
     show_lines(["Connecting WiFi..."])
     if connect_and_sync():

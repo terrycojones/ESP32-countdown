@@ -17,7 +17,13 @@ def _item(**overrides):
 
 
 def test_valid_with_url_has_no_warning():
-    data = {"meta": {"url": "https://example.com/x.json"}, "items": [_item()]}
+    data = {
+        "meta": {
+            "url": "https://example.com/x.json",
+            "wifi_networks": [{"ssid": "x", "password": "y"}],
+        },
+        "items": [_item()],
+    }
     assert upload_json.validate_countdown_json(data) == []
 
 
@@ -244,6 +250,7 @@ def test_percentage_and_equivalent_pixels_warn_the_same():
 
 def test_validate_countdown_json_combines_url_and_layout_warnings():
     data = {
+        "meta": {"wifi_networks": [{"ssid": "x", "password": "y"}]},
         "defaults": {"margin_top": 172},
         "items": [_item(formats=[{"type": "dhms"}])],
     }
@@ -303,6 +310,66 @@ def test_unknown_transition_error_names_the_bad_value_and_target():
 def test_validate_countdown_json_calls_check_transitions():
     data = {"items": [_item(transition="sideways")]}
     with pytest.raises(upload_json.ValidationError, match="sideways"):
+        upload_json.validate_countdown_json(data)
+
+
+# -- validate_wifi_networks --
+
+
+@pytest.mark.parametrize(
+    "networks",
+    [
+        [{"ssid": "x", "password": "y"}],
+        [{"ssid": "x", "password": "y"}, {"ssid": "z", "password": "w"}],
+        [],
+    ],
+)
+def test_valid_wifi_networks_does_not_raise(networks):
+    upload_json.validate_wifi_networks(networks)
+
+
+@pytest.mark.parametrize(
+    "networks",
+    [
+        "not a list",
+        None,
+        [{"ssid": "x"}],
+        [{"password": "y"}],
+        ["not-a-dict"],
+    ],
+)
+def test_invalid_wifi_networks_raises(networks):
+    with pytest.raises(upload_json.ValidationError):
+        upload_json.validate_wifi_networks(networks)
+
+
+def test_wifi_networks_error_message_includes_index():
+    networks = [{"ssid": "ok", "password": "ok"}, {"ssid": "bad"}]
+    with pytest.raises(upload_json.ValidationError, match=r"meta\.wifi_networks\[1\]"):
+        upload_json.validate_wifi_networks(networks)
+
+
+def test_missing_wifi_networks_warns_but_does_not_raise():
+    data = {"meta": {"url": "https://example.com/x.json"}, "items": [_item()]}
+    warnings = upload_json.validate_countdown_json(data)
+    assert any("meta.wifi_networks" in w for w in warnings)
+
+
+def test_present_wifi_networks_has_no_warning_for_it():
+    data = {
+        "meta": {
+            "url": "https://example.com/x.json",
+            "wifi_networks": [{"ssid": "x", "password": "y"}],
+        },
+        "items": [_item()],
+    }
+    warnings = upload_json.validate_countdown_json(data)
+    assert not any("meta.wifi_networks" in w for w in warnings)
+
+
+def test_malformed_wifi_networks_raises_via_validate_countdown_json():
+    data = {"meta": {"wifi_networks": [{"ssid": "x"}]}, "items": [_item()]}
+    with pytest.raises(upload_json.ValidationError, match=r"meta\.wifi_networks\[0\]"):
         upload_json.validate_countdown_json(data)
 
 

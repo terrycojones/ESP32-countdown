@@ -12,6 +12,18 @@ refetch_after_seconds = 3600
 # url = "https://your-config-path.json"
 # upload_command = "Your command to upload the JSON to your server."
 
+# Order matters: earlier entries are tried first. See README.md "Setting
+# up Wi-Fi" -- this whole file (not just this section) should be treated
+# as holding real credentials once you fill these in, so keep your real
+# copy out of git the same way as any other real countdown config.
+[[meta.wifi_networks]]
+ssid = "some-network"
+password = "some-password"
+
+[[meta.wifi_networks]]
+ssid = "another-network"
+password = "another-password"
+
 [defaults]
 margin_top = 4
 margin_bottom = 4

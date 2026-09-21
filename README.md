@@ -156,20 +156,18 @@ make install-python     # copies this project's Python code (lib modules + main.
 
 ## Setting up Wi-Fi
 
-Wi-Fi credentials live in a file deliberately excluded from version
-control (`device/wifi_config.py`), since it holds real network
-passwords. (We considered folding Wi-Fi credentials into the countdown
-JSON instead, but rejected it — the cached JSON gets overwritten on
-every refetch from the server, so the server would need to keep
-echoing your Wi-Fi password back in every response just to avoid
-losing it after the first refresh. Kept separate instead.)
+Wi-Fi credentials are an ordered list of `{ssid, password}` entries in
+`meta.wifi_networks`, in the same countdown config (JSON or TOML) covered
+by "Uploading your countdown data" below — there's no separate wifi-only
+file or upload step any more. Entries are tried in order, so list
+preferred networks first. See `device/countdown_data.example.toml` for
+the format.
 
-```
-cp device/wifi_config.example.py device/wifi_config.py
-# edit device/wifi_config.py with your real network name(s)/password(s) --
-# entries are tried in order, so list preferred networks first
-make install-wifi-config
-```
+If your config uses `meta.url` (dynamic refetch mode), whatever server
+that points at ends up holding your real Wi-Fi passwords too — the same
+JSON gets pushed both to the device and, via `--upload`/`meta.upload_command`,
+to that server. Restrict access to that URL (e.g. embed Basic Auth in
+`meta.url`, `https://user:pass@host/path`) if that matters to you.
 
 ## Uploading your countdown data
 
@@ -229,15 +227,13 @@ not a silent no-op.
 
 It resets the board after uploading, by default — see "Uploading
 interrupts the running app" below for why that's needed. Pass
-`--no-reset` to skip it, e.g. if you're about to upload the Wi-Fi
-config too and only want one reset at the end. `upload_wifi.py`
-(below) behaves the same way.
+`--no-reset` to skip it, e.g. if you're uploading several files in a row
+and only want one reset at the end.
 
 That's it -- `main.py` was already copied onto the board back in
-"Flashing MicroPython" (via `make install-python`), and both
-`install-wifi-config` and `upload_json.py` above reset the board by
-default, so it should already be running with your real Wi-Fi/data. If
-you passed `--no-reset` to either of those, run `make reset` (or
+"Flashing MicroPython" (via `make install-python`), and `upload_json.py`
+above resets the board by default, so it should already be running with
+your real Wi-Fi/data. If you passed `--no-reset`, run `make reset` (or
 unplug/replug) now to start it.
 
 ## Config format reference
@@ -275,6 +271,7 @@ Top level:
 <table>
 <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
 <tr><td><code>meta.url</code></td><td>string</td><td>no</td><td>Where to fetch the <em>next</em> update from (may embed HTTP Basic Auth: <code>https://user:pass@host/path</code>). Omit the key entirely (or, in JSON, set it to <code>null</code>) for static mode — never auto-refetches.</td></tr>
+<tr><td><code>meta.wifi_networks</code></td><td>array of <code>{ssid, password}</code></td><td>no, default <code>[]</code></td><td>Known Wi-Fi networks, tried in order (first known+visible match wins). Empty/omitted means the device never attempts to connect — see "Setting up Wi-Fi" above. If <code>meta.url</code> is also set, this ends up on whatever server that points at too (the same JSON gets pushed both places) — see "Setting up Wi-Fi" for the exposure this implies.</td></tr>
 <tr><td><code>meta.refetch_after_seconds</code></td><td>number</td><td>no</td><td>How often (while <code>meta.url</code> is set) to reconnect to Wi-Fi, re-sync the clock, and refetch.</td></tr>
 <tr><td><code>meta.upload_command</code></td><td>string</td><td>no</td><td>Host-side-only, not read by the device: a shell command template (<code>{path}</code> → local JSON path) that <code>upload_json.py --upload</code> runs to push the JSON to <code>meta.url</code>'s server. See "Uploading your countdown data".</td></tr>
 <tr><td><code>meta.LED_starts_on</code></td><td>boolean</td><td>no, default <code>false</code></td><td>If <code>true</code>, the LED light show starts already toggled on at boot, instead of needing a long-press BOOT to turn it on. Same light show either way — this just skips the first long press. A later long-press BOOT still toggles it off/on as normal.</td></tr>
@@ -461,15 +458,12 @@ works this way, the data-caching/fallback behavior, etc).
   to look at the physical screen (no automated pass/fail), run
   directly from the host via `mpremote run` (not copied to the board
   permanently) — see "Where are the tests?" below
-- `device/wifi_config.example.py` /
-  `device/countdown_data.example.toml` (and its `.json` equivalent) —
-  committed templates (no real secrets); see "Setting up Wi-Fi" /
-  "Uploading your countdown data"
-- `upload_json.py` — validates and uploads a countdown data JSON file
-  to the board
-- `upload_wifi.py` — validates and uploads `device/wifi_config.py` to
-  the board
-- `port_config.py` — shared helper both upload scripts use to read
+- `device/countdown_data.example.toml` (and its `.json` equivalent) —
+  a committed template (placeholder Wi-Fi networks, no real secrets);
+  see "Setting up Wi-Fi" / "Uploading your countdown data"
+- `upload_json.py` — validates and uploads a countdown data JSON (or
+  TOML) file, Wi-Fi networks included, to the board
+- `port_config.py` — shared helper `upload_json.py` uses to read
   `port.txt`
 - `port.txt` — your device's serial port (gitignored,
   machine-specific); see "Set your port once" above
@@ -495,13 +489,12 @@ Two different kinds, run two different ways:
   not CPython's — it is **not** a pytest test, and `pyproject.toml`'s
   `[tool.pytest.ini_options]` explicitly excludes it from pytest
   collection so `make test-host` doesn't try (and fail) to import it.
-- **`tests/test_port_config.py`**, **`test_upload_json.py`**,
-  **`test_upload_wifi.py`** — a normal pytest suite for the host-side
-  scripts' validation logic (`port_config.read_port()`,
-  `upload_json.validate_countdown_json()`,
-  `upload_wifi.validate_networks()`, `load_networks()`). Pure Python,
-  no device or `PORT` needed: `make test-host` (or `uv run pytest
-  tests/` directly).
+- **`tests/test_port_config.py`**, **`test_upload_json.py`** — a
+  normal pytest suite for the host-side scripts' validation logic
+  (`port_config.read_port()`, `upload_json.validate_countdown_json()`,
+  `upload_json.validate_wifi_networks()`). Pure Python, no device or
+  `PORT` needed: `make test-host` (or `uv run pytest tests/`
+  directly).
 
 Everything else under `device/test_*.py` is a **manual
 bring-up/verification script**, not an automated test — it prints
@@ -538,9 +531,6 @@ Writes to the board's filesystem (reversible):
   (so it runs on boot); skipped if nothing's changed locally since the
   last install (tracked via a local `.stamp-python` file) — use `make
   -B install-python` to force it
-- `make install-wifi-config` — validate and copy the real (gitignored)
-  `device/wifi_config.py` to the board (always the same fixed path,
-  unlike your countdown data — see `upload_json.py` above for that)
 
 Destructive (erases/overwrites flash — see the Makefile's "DANGER
 ZONE" comment):
@@ -746,8 +736,8 @@ was never affected — see "Data lifecycle" in `DESIGN.md`.)
 
 ### Uploading interrupts the running app
 
-Copying a file to the board (`mpremote cp`, which `upload_json.py`,
-`upload_wifi.py`, and every `install-*` Makefile target use) has to
+Copying a file to the board (`mpremote cp`, which `upload_json.py`
+and every `install-*` Makefile target use) has to
 enter MicroPython's "raw REPL" mode to do the transfer over
 serial. Entering that mode interrupts whatever's currently running and
 clears its state — but, unlike an actual reset, it does *not*
@@ -760,7 +750,7 @@ on its own.
 
 So: any time a file gets copied to a device that's running the
 countdown app, that app stops and the display freezes until something
-actually resets the board. `upload_json.py`, `upload_wifi.py` do this
+actually resets the board. `upload_json.py` does this
 automatically afterward (`make reset`'s underlying `mpremote
 ... reset`), unless passed `--no-reset` — useful if you're uploading
 several files back-to-back and only want one reset at the end. The
@@ -829,7 +819,7 @@ While building the LED light show, confirmed `time.time()` on this device only h
 
 ### The LED outlives a software reset
 
-Confirmed empirically: set the LED to a bright color, `mpremote ... reset` the board, and it was still showing that color afterward — the LED is a separate chip from the MCU, so resetting the MCU doesn't clear it. `main.py` now explicitly turns the LED off during startup so every boot begins from a known state, which matters because config uploads (`upload_json.py`, `upload_wifi.py`, the `install-*` Makefile targets) always go through an interrupt-and-reset cycle (see "Uploading interrupts the running app") — without this, a light show left running before an upload would keep glowing its last color on the freshly-booted app, even though `light_show_active` itself already reinitializes to `False` in software on every run.
+Confirmed empirically: set the LED to a bright color, `mpremote ... reset` the board, and it was still showing that color afterward — the LED is a separate chip from the MCU, so resetting the MCU doesn't clear it. `main.py` now explicitly turns the LED off during startup so every boot begins from a known state, which matters because config uploads (`upload_json.py`, the `install-*` Makefile targets) always go through an interrupt-and-reset cycle (see "Uploading interrupts the running app") — without this, a light show left running before an upload would keep glowing its last color on the freshly-booted app, even though `light_show_active` itself already reinitializes to `False` in software on every run.
 
 This is deliberately **local-reboot-only**: a periodic remote refetch (`meta.url`) that changes the data does *not* reset `light_show_active`, even though it does reset `item_index`, `format_indices` to 0 — an ongoing light show is meant to survive routine background data refreshes, not just a config push from your own machine. It still catches up to new data within one LED tick (~50ms) regardless, since `led_colors` is resolved fresh from whichever item/format is currently active every tick, never cached from when the light show was turned on.
 
@@ -865,9 +855,9 @@ to break it down by file.
 - [x] JSON fetch/cache/validate (`device/lib/countdown_data.py`),
       Wi-Fi connect/NTP sync (`device/lib/wifi.py`), confirmed against
       a real network and a real HTTPS endpoint
-- [x] Upload tooling (`upload_json.py`, `upload_wifi.py`) and example
-      data (`device/countdown_data.example.toml` / `.json`), plus TOML
-      config support
+- [x] Upload tooling (`upload_json.py`, Wi-Fi networks included) and
+      example data (`device/countdown_data.example.toml` / `.json`),
+      plus TOML config support
 - [x] Rendering module (`device/lib/render.py`) confirmed correct
       after fixing the `framebuf` byte-order bug
 - [x] `main.py` fully implements the countdown app: boot sequence,

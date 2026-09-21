@@ -1,16 +1,20 @@
 # End-to-end network test: Wi-Fi connect, NTP sync, and a real HTTPS GET
 # (via device/lib/requests.py + countdown_data.fetch), then a clean
-# disconnect. Not testing against the real countdown data schema here --
-# just proving the network stack works, using a public test endpoint.
+# disconnect. Uses whatever meta.wifi_networks is in the currently-cached
+# countdown_data.json (see DESIGN.md "Wi-Fi") -- not testing against the
+# real countdown data schema otherwise, just proving the network stack
+# works, using a public test endpoint.
 import time
 
 import countdown_data
 import wifi
-import wifi_config
+
+data = countdown_data.load_cache() or {}
+networks = data.get("meta", {}).get("wifi_networks", [])
 
 print("Connecting...")
 t0 = time.ticks_ms()
-ok = wifi.connect(wifi_config.NETWORKS)
+ok = wifi.connect(networks)
 print("connected:", ok, "in", time.ticks_diff(time.ticks_ms(), t0), "ms")
 
 if ok:

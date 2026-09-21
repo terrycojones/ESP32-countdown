@@ -3,6 +3,10 @@
 /countdown_data.json (the same path the device treats as its cache -- see
 device/lib/countdown_data.py). Warns if it has no meta.url, since that
 means the device will never auto-refetch (see DESIGN.md "Data lifecycle").
+Also warns if it has no meta.wifi_networks (an ordered list of {ssid,
+password} dicts -- the device's only source of known Wi-Fi networks, see
+DESIGN.md "Wi-Fi"), and refuses to upload if meta.wifi_networks is present
+but malformed.
 
 Accepts either JSON or TOML (by file extension) -- MicroPython has no TOML
 support, so a .toml input is converted to JSON before anything else
@@ -318,6 +322,25 @@ def _check_transitions(data):
                 )
 
 
+def validate_wifi_networks(networks):
+    """Raises ValidationError if meta.wifi_networks isn't a list of
+    {"ssid": ..., "password": ...} dicts. An absent/empty list is valid
+    here -- validate_countdown_json() warns about that case instead, the
+    same way it warns about a missing meta.url."""
+    if not isinstance(networks, list):
+        raise ValidationError(
+            "meta.wifi_networks must be a list of {ssid, password} dicts."
+        )
+    for i, entry in enumerate(networks):
+        is_valid = (
+            isinstance(entry, dict) and "ssid" in entry and "password" in entry
+        )
+        if not is_valid:
+            raise ValidationError(
+                f"meta.wifi_networks[{i}] must be a dict with 'ssid'/'password' keys."
+            )
+
+
 def validate_countdown_json(data):
     """Raises ValidationError if `data` doesn't meet the minimum schema
     (see DESIGN.md 'JSON schema'): at least one item, each with at least
@@ -325,10 +348,13 @@ def validate_countdown_json(data):
     (see DESIGN.md 'skip') -- catches "everything is marked skip" at
     upload time rather than only after the device rejects it and shows
     'No data'. Also raises if any format's resolved `transition` isn't a
-    recognized value (see _check_transitions()). Returns a (possibly
-    empty) list of non-fatal warning strings: a missing meta.url (see
-    DESIGN.md 'Data lifecycle'), plus any from _layout_warnings() (see
-    DESIGN.md 'Percentage layout values')."""
+    recognized value (see _check_transitions()), or if meta.wifi_networks
+    isn't shaped like a list of {ssid, password} dicts (see
+    validate_wifi_networks()). Returns a (possibly empty) list of
+    non-fatal warning strings: a missing meta.url (see DESIGN.md 'Data
+    lifecycle'), a missing/empty meta.wifi_networks (see DESIGN.md
+    'Wi-Fi'), plus any from _layout_warnings() (see DESIGN.md 'Percentage
+    layout values')."""
     items = data.get("items", [])
     if not items:
         raise ValidationError("JSON has no items -- refusing to upload.")
@@ -342,11 +368,18 @@ def validate_countdown_json(data):
             "every item/format is marked skip -- nothing would be displayed, refusing to upload."
         )
     _check_transitions(data)
+    wifi_networks = data.get("meta", {}).get("wifi_networks", [])
+    validate_wifi_networks(wifi_networks)
     warnings = []
     if not data.get("meta", {}).get("url"):
         warnings.append(
             "this JSON has no meta.url -- the device will NOT auto-refetch. "
             "Updates will only happen via another manual upload. (See DESIGN.md 'Data lifecycle'.)"
+        )
+    if not wifi_networks:
+        warnings.append(
+            "this JSON has no meta.wifi_networks -- the device will never connect "
+            "to Wi-Fi (no clock sync, no refetch). (See DESIGN.md 'Wi-Fi'.)"
         )
     warnings.extend(_layout_warnings(data))
     return warnings
