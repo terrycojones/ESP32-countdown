@@ -170,6 +170,70 @@ assert countdownfmt.format_value(now + 3000, now, {"type": "seconds", "precision
 )
 print("commas OK")
 
+# -- "scientific": precision applies to the mantissa, not the full value
+# -- see DESIGN.md "Value formats". Deltas built as exact integer seconds
+# for the same reason as the "commas" block above: avoid any float ever
+# entering target_epoch. `sci()` below is just format_value() with `now`
+# and the days/scientific settings baked in, to keep each line short.
+
+
+def sci(target, precision=2, commas=False):
+    fmt = {"type": "days", "precision": precision, "scientific": True}
+    if commas:
+        fmt["commas"] = True
+    return countdownfmt.format_value(target, now, fmt)
+
+
+sci_big = 12345678  # 142.8896... days
+assert sci(now + sci_big) == "1.43e2", "142.89 days -> mantissa 1.43, exponent 2"
+assert sci(now - sci_big) == "-1.43e2", "sign stays outside the mantissa"
+
+# Exponent 0 (including the target == now case): plain mantissa, no "e..."
+# suffix at all.
+assert sci(now + 5 * 86400) == "5.00", "exponent 0 is shown plain, not '5.00e0'"
+assert sci(now) == "0.00", (
+    "target == now (log10(0) undefined) is also shown plain, zero-padded"
+)
+assert sci(now, precision=0) == "0"
+
+# Values below 1 unit: negative exponent.
+small = int(0.0432 * 86400)
+assert sci(now + small) == "4.32e-2", "value < 1 unit -> negative exponent"
+
+# Rounding that carries into the next order of magnitude, e.g.
+# "9.995e5" -> "1.00e6", not "10.00e5".
+carry = 999500 * 86400 + 43200  # exactly 999500.5 days
+assert sci(now + carry) == "1.00e6", (
+    "mantissa rounding must carry into the next exponent, not overflow to 2 digits"
+)
+# Same carry, but landing exactly on a single-digit mantissa (no decimal
+# point at all) at precision 0.
+carry0 = int(0.999 * 86400)  # 0.999 days
+assert sci(now + carry0, precision=0) == "1", (
+    "0.999 rounds to 1 at precision 0 -- carries all the way to exponent 0"
+)
+
+# "commas" is meaningless (and ignored) once "scientific" is also set.
+assert sci(now + sci_big, commas=True) == "1.43e2", (
+    "commas has no effect once scientific is set"
+)
+print("scientific OK")
+
+# -- "scientific" also changes update_interval_seconds()'s cadence: it
+# depends on the value's current exponent, not just precision, so it
+# needs target_epoch/now_epoch too (every other case can omit them). --
+sci_days_fmt = {"type": "days", "precision": 2, "scientific": True}
+assert countdownfmt.update_interval_seconds(
+    sci_days_fmt, target_epoch=now + carry, now_epoch=now
+) == 86400 * 1000, "exponent 5 (pre-carry), precision 2 -> step size is 10**3 days"
+assert countdownfmt.update_interval_seconds(
+    sci_days_fmt, target_epoch=now + small, now_epoch=now
+) == 8.64, "exponent -2, precision 2 -> step size is 10**-4 days"
+assert countdownfmt.update_interval_seconds(
+    {"type": "days", "precision": 2}, target_epoch=None, now_epoch=None
+) == 864.0, "non-scientific callers (every existing one above) don't need target/now"
+print("scientific update_interval OK")
+
 # -- regression: "seconds" must not freeze for large deltas --
 # Root cause: this device's floats are 32-bit, only exactly representing
 # integers up to 2**24 (~16.7 million). A ~1963-birthdate "seconds" delta is

@@ -286,11 +286,17 @@ while True:
                 last_draw_time = 0  # force immediate redraw
 
     # -- redraw the value if its format's update interval has elapsed --
+    # `target` is parsed every tick, not just when redrawing: a
+    # "scientific" format's interval depends on the *current* magnitude
+    # of the value, so update_interval_seconds() needs it up front to
+    # decide whether it's even time to redraw -- see DESIGN.md "Value
+    # formats". isotime.parse_iso8601() is cheap pure-integer parsing,
+    # so this is fine to do unconditionally.
     fmt = item["formats"][format_indices[item_index]]
-    interval = countdownfmt.update_interval_seconds(fmt, item, defaults)
+    target = isotime.parse_iso8601(item["target"])
+    interval = countdownfmt.update_interval_seconds(fmt, item, defaults, target, now)
     if now - last_draw_time >= interval:
         display.set_brightness(d.backlight, display.resolve_brightness(fmt, item, defaults))
-        target = isotime.parse_iso8601(item["target"])
         value_str = countdownfmt.format_value(target, now, fmt, item, defaults)
         is_negative = countdownfmt.is_negative_delta(target, now)
         render.render_item(

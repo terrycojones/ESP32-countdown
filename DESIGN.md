@@ -94,7 +94,7 @@ Notes:
 - `items` must contain at least one entry. Each item must have at least one
   entry in its own `formats` list.
 - Every setting a format entry can have (`type`, `precision`,
-  `absolute_value`, `commas`, `top_text`, `bottom_text`,
+  `absolute_value`, `commas`, `scientific`, `top_text`, `bottom_text`,
   `top_text_positive`, `top_text_negative`, `top_text_zero`,
   `bottom_text_positive`, `bottom_text_negative`, `bottom_text_zero`, the
   four color fields, `brightness`, `led_colors`, `led_cycle_seconds`,
@@ -154,8 +154,8 @@ The item level exists so formats that mostly share the same look/text
 don't have to repeat every color/brightness/text setting on each one --
 put the shared settings on the item once, and only the settings that
 actually differ (typically `type`, `precision`) on the individual formats.
-`type`, `precision`, `absolute_value`, and `commas` can technically be set
-at the item or `defaults` level too (the resolution chain doesn't
+`type`, `precision`, `absolute_value`, `commas`, and `scientific` can
+technically be set at the item or `defaults` level too (the resolution chain doesn't
 special-case which keys are "structural" vs. "format" settings), though in
 practice `type` usually still varies per format -- that's the whole point
 of an item having several formats to rotate through.
@@ -367,6 +367,36 @@ confirmed empirically that MicroPython's f-strings/`str.format()` silently
 produces `'1234567.90'`, not `'1,234,567.90'` -- no error, just no commas),
 so relying on it wasn't an option.
 
+A format entry may also set `"scientific": true` (again, only meaningful
+for the `"years"`/`"days"`/`"hours"`/`"minutes"`/`"seconds"` family, not
+`"dhms"`), which displays the value in exponential notation, e.g.
+`"1.23e4"` instead of `"12345.68"`. In scientific mode, `precision`
+applies to the **mantissa** (the digits after its decimal point), not to
+the full value -- so `precision: 2` means 2 digits after the mantissa's
+decimal point regardless of how large the exponent is. Defaults to
+`false` at every tier (format, item, and `defaults`) if never set.
+
+Two formatting rules keep the output from looking inconsistent at small
+magnitudes:
+
+- An exponent of `0` (the value's already in `[1, 10)`) is shown as a
+  plain number with **no** `"e..."` suffix at all -- `"5.40"`, not
+  `"5.40e0"`. A delta of exactly zero (target == now, where log10(0) is
+  undefined) is treated the same way: a plain zero-padded mantissa, e.g.
+  `"0.00"` at precision 2, with no exponent shown.
+- The mantissa always rounds to the nearest representable value at the
+  given precision, carrying into the next order of magnitude when
+  needed -- e.g. `"9.995e3"` at precision 2 becomes `"1.00e4"`, never
+  `"10.00e3"`.
+
+`commas` is silently ignored when `scientific` is also set (there's at
+most one digit before the mantissa's decimal point, so there's nothing
+to group). The exponent itself is found by exact integer comparison in
+`countdownfmt._find_exponent()`, never a floating `log10()` -- the same
+float-avoidance discipline as the plain-format branch above, given this
+device's known 32-bit float precision limits (see "This device's floats
+are 32-bit" in README.md).
+
 Display update cadence (how often the value is recalculated/redrawn) is
 **derived from the format**, not separately configured:
 
@@ -374,7 +404,15 @@ Display update cadence (how often the value is recalculated/redrawn) is
 - `"years"`, `"days"`, `"hours"`, `"minutes"`, `"seconds"` with precision P
   update every `10^-P` units-of-that-type converted to seconds (e.g.
   `days` precision=2 -> ~864s, `seconds` precision=0 -> 1s, `seconds`
-  precision=3 -> hits the floor below rather than 0.001s).
+  precision=3 -> hits the floor below rather than 0.001s), **unless**
+  `scientific` is set, in which case it's `10^(E-P)` units-of-that-type
+  converted to seconds, where `E` is the value's *current* exponent --
+  e.g. at precision 2, the mantissa's last digit changes far less often
+  at `"1.23e8"` than at `"1.23e0"`. Because `E` changes as the countdown
+  progresses, this is recomputed from the live delta on every check, not
+  just from the static format config -- see `update_interval_seconds()`'s
+  `target_epoch`/`now_epoch` parameters in `countdownfmt.py` and their use
+  in `main.py`.
 - Floor of 0.1s (a tenth of a second) regardless of the derived value --
   below this is just for visual smoothness, not meaningful accuracy (see
   "Clock accuracy" below).

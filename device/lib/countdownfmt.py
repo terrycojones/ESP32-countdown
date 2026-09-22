@@ -46,6 +46,70 @@ def _add_commas(s):
     return result + "." + frac_part if frac_part else result
 
 
+def _value_at_least_pow10(abs_delta: int, unit_seconds: int, exponent: int) -> bool:
+    """True iff abs_delta/unit_seconds >= 10**exponent. `exponent` may be
+    negative, but only non-negative powers of 10 are ever computed --
+    `10 ** a_negative_int` is a float even on this device's MicroPython,
+    which would defeat the point of doing this in integers at all."""
+    if exponent >= 0:
+        return abs_delta >= unit_seconds * (10**exponent)
+    return abs_delta * (10**-exponent) >= unit_seconds
+
+
+def _find_exponent(abs_delta: int, unit_seconds: int) -> int:
+    """floor(log10(abs_delta / unit_seconds)), found by exact integer
+    comparison (_value_at_least_pow10 above) rather than a floating
+    log10() -- same float-avoidance discipline as format_value() below.
+    `abs_delta` must be > 0; callers handle the zero case (log10(0) is
+    undefined) themselves -- see DESIGN.md "Value formats"."""
+    exponent = len(str(abs_delta)) - len(str(unit_seconds))  # rough guess
+    while not _value_at_least_pow10(abs_delta, unit_seconds, exponent):
+        exponent -= 1
+    while _value_at_least_pow10(abs_delta, unit_seconds, exponent + 1):
+        exponent += 1
+    return exponent
+
+
+def _scientific_digits(abs_delta, unit_seconds, exponent, precision):
+    """The `precision + 1` significant digits of abs_delta/unit_seconds
+    normalized into [1, 10) at `exponent`, rounded to the nearest integer
+    in one exact step -- never rounded once to extra digits and then
+    again down to `precision`, which could round the wrong way at an
+    exact tie. May return `precision + 2` digits instead, if rounding
+    carried into the next order of magnitude (e.g. "9.995" -> "10.00" at
+    precision 2) -- the caller renormalizes that case by bumping
+    `exponent`."""
+    shift = precision - exponent
+    if shift >= 0:
+        numerator = abs_delta * (10**shift)
+        denominator = unit_seconds
+    else:
+        numerator = abs_delta
+        denominator = unit_seconds * (10**-shift)
+    return str((numerator + denominator // 2) // denominator)
+
+
+def _format_scientific(abs_delta: int, unit_seconds: int, precision: int) -> str:
+    """"mantissa[.digits][e exponent]" form of abs_delta/unit_seconds,
+    `precision` digits after the mantissa's decimal point -- i.e.
+    `precision` applies to the mantissa here, not the full value (see
+    DESIGN.md "Value formats"). Exponent 0 -- including the abs_delta ==
+    0 case, where log10 is undefined -- is shown as a plain number with
+    no "e..." suffix at all, e.g. "5.40" rather than "5.40e0"."""
+    if abs_delta == 0:
+        exponent = 0
+        digits = "0" * (precision + 1)
+    else:
+        exponent = _find_exponent(abs_delta, unit_seconds)
+        digits = _scientific_digits(abs_delta, unit_seconds, exponent, precision)
+        if len(digits) > precision + 1:  # rounded up a magnitude: renormalize
+            exponent += 1
+            digits = "1" + "0" * precision
+
+    mantissa = digits if precision == 0 else digits[0] + "." + digits[1:]
+    return mantissa if exponent == 0 else mantissa + "e" + str(exponent)
+
+
 def is_negative_delta(target_epoch, now_epoch):
     """Whether the target has already passed -- i.e. the raw
     (target_epoch - now_epoch) delta is negative -- computed the same way
@@ -80,6 +144,12 @@ def format_value(target_epoch, now_epoch, fmt, item=None, defaults=None):
         unit_seconds = _UNIT_SECONDS[ftype]
         sign = "-" if delta_seconds < 0 else ""
         abs_delta = abs(int(delta_seconds))  # exact int, arbitrary size
+
+        if settings.resolve("scientific", fmt, item, defaults, False):
+            # `commas` is meaningless on a one-digit mantissa, so it's
+            # simply never consulted in this branch -- see DESIGN.md
+            # "Value formats".
+            return sign + _format_scientific(abs_delta, unit_seconds, precision)
 
         # Pure integer arithmetic throughout -- never converts the
         # (possibly huge) delta through a float. Found the hard way: this
@@ -121,7 +191,16 @@ def format_value(target_epoch, now_epoch, fmt, item=None, defaults=None):
     raise ValueError("unknown format type: {}".format(ftype))
 
 
-def update_interval_seconds(fmt, item=None, defaults=None):
+def update_interval_seconds(
+    fmt, item=None, defaults=None, target_epoch=None, now_epoch=None
+):
+    """`target_epoch`/`now_epoch` are only read when `scientific` is set:
+    a scientific-mode redraw interval depends on the value's *current*
+    magnitude (exponent), not just `precision` -- e.g. at precision 2 the
+    mantissa's last digit changes far less often at "1.23e8" than at
+    "1.23e0". Every other case (plain formatting, "dhms", and every
+    existing caller/test) can keep omitting them -- see DESIGN.md "Value
+    formats"."""
     item = item or {}
     defaults = defaults or {}
     ftype = settings.resolve("type", fmt, item, defaults)
@@ -129,7 +208,16 @@ def update_interval_seconds(fmt, item=None, defaults=None):
         interval = 1.0
     elif ftype in _UNIT_SECONDS:
         precision = settings.resolve("precision", fmt, item, defaults, 0)
-        interval = _UNIT_SECONDS[ftype] / (10**precision)
+        unit_seconds = _UNIT_SECONDS[ftype]
+        if settings.resolve("scientific", fmt, item, defaults, False):
+            abs_delta = abs(int(target_epoch - now_epoch))
+            exponent = _find_exponent(abs_delta, unit_seconds) if abs_delta else 0
+            if exponent >= precision:
+                interval = unit_seconds * (10 ** (exponent - precision))
+            else:
+                interval = unit_seconds / (10 ** (precision - exponent))
+        else:
+            interval = unit_seconds / (10**precision)
     else:
         interval = 1.0
     return max(MIN_UPDATE_INTERVAL, interval)
