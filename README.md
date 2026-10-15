@@ -83,7 +83,23 @@ similar-looking product names. The reliable way to find out:
    # ...plug the board in...
    ls -l /dev/cu.*          # the new entry in the ls output is your port
    ```
-   (Windows: watch Device Manager for a new COM port to appear.)
+   (Windows: ports show up as `COMx`, e.g. `COM3`, not `/dev/cu.*` —
+   that's what belongs in `port.txt`, with no path prefix. Device
+   Manager will show a new entry under "Ports (COM & LPT)" when you
+   plug the board in, or do the same before/after comparison in
+   PowerShell:
+   ```
+   Get-PnpDevice -Class Ports -PresentOnly
+   # ...plug the board in...
+   Get-PnpDevice -Class Ports -PresentOnly
+   ```
+   The new row's `FriendlyName` will say something like `USB Serial
+   Device (COM3)` — the `COM3` in parentheses is the port. Unlike on
+   macOS, this friendly name usually already tells you the
+   manufacturer directly, since Windows doesn't distinguish native-USB
+   chips from USB-serial-bridge chips the way macOS's `usbmodem` vs.
+   `usbserial` naming does — both enumerate the same way on Windows,
+   so that particular trick doesn't apply there.)
 
    If it's already plugged in and unplugging is inconvenient, a couple
    of other things can help narrow it down:
@@ -111,6 +127,12 @@ similar-looking product names. The reliable way to find out:
    ```
    make chip-info PORT=<your-port>
    ```
+   (Windows, plain PowerShell: `make` and the Unix shell it relies on
+   aren't available by default, so `make` targets throughout this
+   README won't run as-is unless you're in WSL or Git Bash. From
+   PowerShell, run the underlying command directly instead, e.g.
+   `uv run esptool --port COM3 chip-id`; the Makefile's targets show
+   which `uv run ...` command each one wraps.)
 3. The output's "Chip type:" line names the exact family
    (e.g. `ESP32-C6`, `ESP32-S3`, plain `ESP32`). `make flash-info
    PORT=<your-port>` additionally confirms the flash size
