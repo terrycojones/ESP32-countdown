@@ -103,23 +103,33 @@ def save_cache(data, path=CACHE_PATH):
         json.dump(data, f)
 
 
-def fetch(url, timeout=15):
+def fetch(url, timeout=15, attempts=3):
     """Fetch and parse JSON from `url` (may embed user:pass@ Basic Auth).
     Returns the parsed dict, or None on any failure (network, HTTP status,
-    malformed JSON)."""
+    malformed JSON). Retries a few times on exception -- the ESP32's TLS
+    handshake can intermittently fail with ENOMEM under heap fragmentation
+    even with plenty of total free memory; a gc.collect() plus a short
+    pause between attempts sometimes lets a later attempt succeed."""
+    import gc
+    import time
+
     import requests
 
     clean_url, auth = split_auth(url)
-    try:
-        response = requests.get(clean_url, auth=auth, timeout=timeout)
+    for attempt in range(attempts):
+        gc.collect()
         try:
-            if response.status_code != 200:
-                return None
-            return response.json()
-        finally:
-            response.close()
-    except Exception:
-        return None
+            response = requests.get(clean_url, auth=auth, timeout=timeout)
+            try:
+                if response.status_code != 200:
+                    return None
+                return response.json()
+            finally:
+                response.close()
+        except Exception:
+            if attempt + 1 < attempts:
+                time.sleep_ms(500)
+    return None
 
 
 def refresh(url, cache_path=CACHE_PATH):

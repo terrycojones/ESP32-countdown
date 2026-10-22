@@ -13,6 +13,11 @@ def connect(known_networks, scan_timeout_ms=10_000, connect_timeout_ms=15_000):
     WLAN interface active either way -- call disconnect_and_off() when done."""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    # Confirmed empirically: scanning/connecting immediately after
+    # active(True) can silently fail to associate (wlan.status() stays
+    # STAT_IDLE) when the radio was just toggled off and back on -- the
+    # esp-idf Wi-Fi driver needs a moment to finish reinitializing.
+    time.sleep_ms(500)
 
     visible = set()
     try:

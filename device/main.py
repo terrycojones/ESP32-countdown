@@ -3,6 +3,7 @@
 # -- copy this file there any time it changes, it is not auto-synced.
 #
 # See DESIGN.md for the full design this implements.
+import gc
 import math
 import time
 
@@ -40,6 +41,15 @@ led_np = led.init_led()
 # still red). Force it off here so every boot starts from a known state
 # rather than whatever the light show happened to be doing before.
 led.off(led_np)
+# Sweeps whatever transient garbage this init left behind before the next
+# permanent allocations (below) land -- MicroPython's GC never moves
+# objects, so garbage left in place here would otherwise sit wedged
+# between them for the device's whole uptime. Confirmed empirically to
+# matter: the TLS handshake during a later periodic refetch intermittently
+# failed with ENOMEM despite tens of KB of nominally free heap -- plenty
+# of free bytes, but fragmented into pieces too small for the single
+# contiguous buffer mbedtls needs.
+gc.collect()
 
 
 clock_synced = False  # set True the first time an NTP sync actually succeeds
@@ -122,6 +132,11 @@ data = countdown_data.load_cache()
 # -- (data or {}) covers that case the same way every other meta.* lookup
 # below does.
 KNOWN_NETWORKS = (data or {}).get("meta", {}).get("wifi_networks", [])
+# Same reasoning as the gc.collect() above -- load_cache()'s JSON parsing
+# leaves a burst of now-garbage temporaries that would otherwise sit
+# wedged against the permanent `data` tree for the rest of the device's
+# uptime.
+gc.collect()
 
 if data is None:
     # No cache at all, and (per DESIGN.md) no way to know a fetch URL
