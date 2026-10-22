@@ -43,6 +43,7 @@ shlex.split + subprocess (no shell=True), so shell features like pipes or
 
 Usage: uv run python upload_json.py <path-to-json-or-toml> [--port PORT] [--no-reset] [--json-out PATH] [--upload]
 """
+
 import argparse
 import json
 import shlex
@@ -118,7 +119,10 @@ def prepare_upload_path(config_path, data, json_out_arg, will_auto_upload):
         json_out = Path(json_out_arg)
         with open(json_out, "w") as f:
             json.dump(data, f, indent=2)
-        print(f"Wrote converted JSON to {json_out} -- upload this file to wherever meta.url points, if set.")
+        print(
+            f"Wrote converted JSON to {json_out} -- upload this file "
+            "to wherever meta.url points, if set."
+        )
         return json_out, None
 
     has_url = bool(data.get("meta", {}).get("url"))
@@ -132,7 +136,10 @@ def prepare_upload_path(config_path, data, json_out_arg, will_auto_upload):
     json_out = config_path.with_suffix(".json")
     with open(json_out, "w") as f:
         json.dump(data, f, indent=2)
-    print(f"Wrote converted JSON to {json_out} -- upload this file to wherever meta.url points, if set.")
+    print(
+        f"Wrote converted JSON to {json_out} -- upload this file "
+        "to wherever meta.url points, if set."
+    )
     return json_out, None
 
 
@@ -332,9 +339,7 @@ def validate_wifi_networks(networks):
             "meta.wifi_networks must be a list of {ssid, password} dicts."
         )
     for i, entry in enumerate(networks):
-        is_valid = (
-            isinstance(entry, dict) and "ssid" in entry and "password" in entry
-        )
+        is_valid = isinstance(entry, dict) and "ssid" in entry and "password" in entry
         if not is_valid:
             raise ValidationError(
                 f"meta.wifi_networks[{i}] must be a dict with 'ssid'/'password' keys."
@@ -394,7 +399,10 @@ def run_upload_command(command_template, path):
     try:
         subprocess.run(shlex.split(command), check=True)
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: upload_command failed (exit status {e.returncode}): {command}", file=sys.stderr)
+        print(
+            f"ERROR: upload_command failed (exit status {e.returncode}): {command}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except FileNotFoundError as e:
         print(f"ERROR: upload_command failed to start: {e}", file=sys.stderr)
@@ -409,7 +417,10 @@ def run_mpremote(args, description):
     try:
         subprocess.run(args, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: {description} (mpremote exited with status {e.returncode}).", file=sys.stderr)
+        print(
+            f"ERROR: {description} (mpremote exited with status {e.returncode}).",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except FileNotFoundError:
         print("ERROR: mpremote not found -- did you run `uv sync`?", file=sys.stderr)
@@ -438,10 +449,19 @@ def main():
         "--upload",
         action="store_true",
         help="Run meta.upload_command to push the JSON to the server named "
-        "in meta.url, instead of just printing a reminder to do it "
-        "yourself. Errors if meta.upload_command isn't set.",
+        "in meta.url. Errors if meta.upload_command isn't set.",
+    )
+    parser.add_argument(
+        "--upload-only",
+        action="store_true",
+        help="Don't upload code into the ESP32. Just run the meta.upload_command "
+        "to push the JSON to the server named in meta.url. Errors if "
+        "meta.upload_command isn't set. Implies --upload.",
     )
     args = parser.parse_args()
+
+    if args.upload_only:
+        args.upload = True
 
     config_path = Path(args.config_path)
     data = load_config(config_path)
@@ -449,43 +469,52 @@ def main():
     try:
         data = color_names.resolve_color_names(data)
     except color_names.UnknownColorNameError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(f"ERROR: {e}")
 
     try:
         warnings = validate_countdown_json(data)
     except ValidationError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(f"ERROR: {e}")
+
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
 
-    upload_path, temp_dir = prepare_upload_path(config_path, data, args.json_out, args.upload)
+    upload_path, temp_dir = prepare_upload_path(
+        config_path, data, args.json_out, args.upload
+    )
 
     try:
-        run_mpremote(
-            [sys.executable, "-m", "mpremote", "connect", args.port, "cp", str(upload_path), REMOTE_PATH],
-            "upload",
-        )
-        print(f"Uploaded {upload_path} to {REMOTE_PATH} on {args.port}.")
+        if not args.upload_only:
+            run_mpremote(
+                [
+                    sys.executable,
+                    "-m",
+                    "mpremote",
+                    "connect",
+                    args.port,
+                    "cp",
+                    str(upload_path),
+                    REMOTE_PATH,
+                ],
+                "upload",
+            )
+            print(f"Uploaded {upload_path} to {REMOTE_PATH} on {args.port}.")
 
-        url = data.get("meta", {}).get("url")
+            if not args.no_reset:
+                run_mpremote(
+                    [sys.executable, "-m", "mpremote", "connect", args.port, "reset"],
+                    "reset",
+                )
+                print("Board reset -- main.py is running again.")
+
         if args.upload:
             upload_command = data.get("meta", {}).get("upload_command")
             if not upload_command:
-                print("ERROR: --upload was given but meta.upload_command isn't set in the config.", file=sys.stderr)
-                sys.exit(1)
+                sys.exit(
+                    "ERROR: --upload was given but the config has no meta.upload_command."
+                )
             run_upload_command(upload_command, upload_path)
-            print(f"Ran upload_command to push {upload_path} to the server.")
-        elif url:
-            print(f"Reminder: meta.url is set to {url!r} -- also upload {upload_path} there, so the device's next periodic refetch picks up this data too.")
-
-        if not args.no_reset:
-            run_mpremote(
-                [sys.executable, "-m", "mpremote", "connect", args.port, "reset"],
-                "reset",
-            )
-            print("Board reset -- main.py is running again.")
+            print(f"Uploaded {upload_path} to the server.")
     finally:
         if temp_dir is not None:
             temp_dir.cleanup()
